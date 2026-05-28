@@ -136,11 +136,107 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind) -> Vec<Segmen
     }
 }
 
+/// 把 whisper 跑「短段」出來的 segment(段內相對時間)平移成「整場絕對時間」。
+/// offset_ms = 該 speech 段在原始 stream 的起點。
+pub fn shift_segments_by_offset(mut segs: Vec<Segment>, offset_ms: u64) -> Vec<Segment> {
+    for s in &mut segs {
+        s.start_ms += offset_ms;
+        s.end_ms += offset_ms;
+    }
+    segs
+}
+
+/// Append segments 到 jsonl(一行一 segment),建立父目錄。跟 Phase 1 batch 格式一致。
+pub fn append_segments_jsonl(path: &std::path::Path, segs: &[Segment]) -> Result<(), String> {
+    use std::io::Write;
+    if segs.is_empty() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir transcript dir: {e}"))?;
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("open jsonl append: {e}"))?;
+    for s in segs {
+        let line = serde_json::to_string(s).map_err(|e| format!("serialize segment: {e}"))?;
+        writeln!(f, "{line}").map_err(|e| format!("write jsonl: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 讀回 jsonl 成 Vec<Segment>(stop 時彙整用)。缺檔回空。壞行跳過。
+pub fn read_segments_jsonl(path: &std::path::Path) -> Vec<Segment> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const FIXTURE: &str = include_str!("../tests/fixtures/whisper-small.json");
+
+    fn sample_seg() -> Segment {
+        Segment {
+            id: "s1".into(),
+            session_id: "x".into(),
+            track: "system".into(),
+            source_kind: "meeting_system".into(),
+            visibility: "public".into(),
+            start_ms: 100,
+            end_ms: 500,
+            text: "hi".into(),
+            is_final: true,
+            confidence: None,
+        }
+    }
+
+    #[test]
+    fn shift_offset_adds_to_both_ends() {
+        let shifted = shift_segments_by_offset(vec![sample_seg()], 10_000);
+        assert_eq!(shifted[0].start_ms, 10_100);
+        assert_eq!(shifted[0].end_ms, 10_500);
+    }
+
+    #[test]
+    fn append_jsonl_round_trip() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("transcript").join("system.segments.jsonl");
+        let seg = sample_seg();
+        append_segments_jsonl(&path, std::slice::from_ref(&seg)).unwrap();
+        append_segments_jsonl(&path, std::slice::from_ref(&seg)).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content.lines().count(), 2);
+        for line in content.lines() {
+            let _: Segment = serde_json::from_str(line).unwrap();
+        }
+    }
+
+    #[test]
+    fn read_jsonl_skips_blank_and_bad_lines() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("t.jsonl");
+        let good = serde_json::to_string(&sample_seg()).unwrap();
+        std::fs::write(&path, format!("{good}\n\nnot json\n{good}\n")).unwrap();
+        let segs = read_segments_jsonl(&path);
+        assert_eq!(segs.len(), 2);
+    }
+
+    #[test]
+    fn read_jsonl_missing_file_returns_empty() {
+        let segs = read_segments_jsonl(std::path::Path::new("/nonexistent/x.jsonl"));
+        assert!(segs.is_empty());
+    }
 
     #[test]
     fn parses_fixture_into_two_segments() {
