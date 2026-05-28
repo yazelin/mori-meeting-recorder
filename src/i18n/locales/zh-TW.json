@@ -18,7 +18,10 @@
     "transcribing_hint": "雙軌轉錄中,請稍候(通常 0.5-1x 即時)",
     "done_title": "完成 — session",
     "open_folder": "開資料夾",
-    "warning": "客戶版只使用會議音訊;內部麥克風不會預設匯出給客戶。"
+    "warning": "客戶版只使用會議音訊;內部麥克風不會預設匯出給客戶。",
+    "idle_label": "閒置",
+    "source_sys": "系統音訊 (pulse:.monitor)",
+    "source_mic": "本機麥克風 (default-input)"
   },
   "sessions": {
     "title": "Session 列表",

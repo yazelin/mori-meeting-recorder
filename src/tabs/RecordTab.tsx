@@ -1,83 +1,120 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
+import TriangleIcon from "../components/icons/TriangleIcon";
+import SquareIcon from "../components/icons/SquareIcon";
+import SpinnerIcon from "../components/icons/SpinnerIcon";
+import TrackPanel from "../components/TrackPanel";
 
-type Status = { state: "idle" | "recording" | "transcribing"; session_id: string | null; system_signal: boolean; mic_signal: boolean };
+type RecState = "idle" | "recording" | "transcribing";
+
+interface TrackLevel { peak_db: number; rms_db: number; signal: boolean }
+interface LevelsPayload { sys: TrackLevel; mic: TrackLevel }
+
+type Status = {
+  state: RecState;
+  elapsed_secs: number;
+  session_id: string | null;
+  system_signal: boolean;
+  mic_signal: boolean;
+  levels: LevelsPayload | null;
+};
+
+const fmtElapsed = (s: number) => {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+};
 
 export default function RecordTab() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<Status | null>(null);
-  const [lastSession, setLastSession] = useState<string | null>(null);
+  const [levels, setLevels] = useState<LevelsPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // status polling (500ms) — 兼當 levels polling fallback
   useEffect(() => {
     const tick = async () => {
-      try { setStatus(await invoke<Status>("recorder_status")); } catch {}
+      try {
+        const s = await invoke<Status>("recorder_status");
+        setStatus(s);
+        if (s.levels) setLevels(s.levels);
+      } catch { /* ignore */ }
     };
     tick();
-    const id = setInterval(tick, 1000);
+    const id = setInterval(tick, 500);
     return () => clearInterval(id);
   }, []);
 
-  const start = async () => {
-    setErr(null);
-    try { await invoke("recorder_start"); } catch (e: any) { setErr(String(e)); console.error(e); }
-  };
-  const stop = async () => {
+  // Tauri "levels" event subscription — 50ms tick when recording
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    (async () => {
+      unlisten = await listen<LevelsPayload>("levels", (e) => setLevels(e.payload));
+    })();
+    return () => { unlisten?.(); };
+  }, []);
+
+  const recState: RecState = status?.state ?? "idle";
+  const onStartStop = async () => {
     setErr(null);
     try {
-      const id = await invoke<string>("recorder_stop");
-      setLastSession(id);
-    } catch (e: any) { setErr(String(e)); console.error(e); }
-  };
-  const openDir = async () => {
-    if (lastSession) await invoke("open_session_dir", { sessionId: lastSession });
+      if (recState === "recording") await invoke("recorder_stop");
+      else if (recState === "idle") await invoke("recorder_start");
+    } catch (e: any) {
+      setErr(String(e));
+      console.error(e);
+    }
   };
 
-  const isRecording = status?.state === "recording";
-  const isTranscribing = status?.state === "transcribing";
+  const statusLabel =
+    recState === "recording"     ? "REC" :
+    recState === "transcribing"  ? t("capsule.transcribing") :
+                                   t("record.idle_label");
+  const actionTitle =
+    recState === "recording"     ? t("capsule.stop") :
+    recState === "transcribing"  ? t("capsule.transcribing") :
+                                   t("capsule.start");
 
   return (
     <div>
       <div className="callout">⚠ {t("record.warning")}</div>
 
-      <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
-        {isRecording ? (
-          <button className="mmr-btn danger lg" onClick={stop}>
-            ■ {t("record.stop_button")}
-          </button>
-        ) : (
-          <button className="mmr-btn primary lg" onClick={start} disabled={isTranscribing}>
-            ▶ {t("record.start_button")}
-          </button>
-        )}
+      <div className="record-control-bar">
+        <span className="control-status">
+          <span className={`control-dot ${recState}`} />
+          <span className={`control-label ${recState}`}>{statusLabel}</span>
+          <span className="control-time">{fmtElapsed(status?.elapsed_secs ?? 0)}</span>
+        </span>
+        <button
+          className="control-action"
+          data-state={recState}
+          onClick={onStartStop}
+          disabled={recState === "transcribing"}
+          title={actionTitle}
+        >
+          {recState === "idle"        && <TriangleIcon size={14} />}
+          {recState === "recording"   && <SquareIcon   size={12} />}
+          {recState === "transcribing" && <SpinnerIcon size={16} />}
+        </button>
       </div>
 
-      <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
-        <span className={`signal-pill ${status?.system_signal ? "on" : ""}`}>
-          <span className="signal-pill-dot" /> {t("capsule.system_pill")}
-        </span>
-        <span className={`signal-pill ${status?.mic_signal ? "on" : ""}`}>
-          <span className="signal-pill-dot" /> {t("capsule.mic_pill")}
-        </span>
-      </div>
+      <TrackPanel
+        kind="sys"
+        label={t("capsule.system_pill")}
+        sourceName={t("record.source_sys")}
+        level={levels?.sys ?? null}
+      />
+      <TrackPanel
+        kind="mic"
+        label={t("capsule.mic_pill")}
+        sourceName={t("record.source_mic")}
+        level={levels?.mic ?? null}
+      />
 
       {err && (
         <div className="callout" style={{ marginTop: 12, color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.30)", background: "rgba(255,99,99,0.08)" }}>
           ⚠ {err}
-        </div>
-      )}
-
-      {isTranscribing && (
-        <p style={{ marginTop: 16, color: "var(--text-secondary)" }}>{t("record.transcribing_hint")}</p>
-      )}
-
-      {lastSession && status?.state === "idle" && (
-        <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: "var(--found-color)" }}>✓</span>
-          <span>{t("record.done_title")}:</span>
-          <code style={{ fontSize: 11, color: "var(--text-dim)" }}>{lastSession}</code>
-          <button className="mmr-btn" onClick={openDir}>{t("record.open_folder")}</button>
         </div>
       )}
     </div>

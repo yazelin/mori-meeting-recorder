@@ -18,7 +18,10 @@
     "transcribing_hint": "Transcribing both tracks (~0.5-1x realtime)…",
     "done_title": "Done — session",
     "open_folder": "Open folder",
-    "warning": "Client transcript uses meeting audio only; mic-internal is never exported by default."
+    "warning": "Client transcript uses meeting audio only; mic-internal is never exported by default.",
+    "idle_label": "IDLE",
+    "source_sys": "system audio",
+    "source_mic": "default mic input"
   },
   "sessions": {
     "title": "Sessions",
