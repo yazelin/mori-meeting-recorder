@@ -37,6 +37,9 @@
   --meter-bar:        var(--found-color);
   --meter-bar-peak:   var(--rec-accent);
   --meter-bar-bg:     rgba(255,255,255,0.06);
+  --vu-seg-w:  6px;
+  --vu-seg-gap: 2px;
+  --vu-seg-h:  18px;
 
   /* Seg pill token(留給 PR3) */
   --seg-pill-public-bg:   rgba(77, 242, 153, 0.18);
@@ -321,3 +324,20 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
   color: var(--trans-accent);
   opacity: 0.8;
 }
+
+/* VU meter grid — 24 等寬 segment,水平排,左對齊。 */
+.vu-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vu-seg-gap, 2px);
+  height: var(--vu-seg-h, 18px);
+}
+.vu-seg {
+  width: var(--vu-seg-w, 6px);
+  height: 100%;
+  background: var(--meter-bar-bg);
+  border-radius: 1px;
+  transition: background 0.05s linear;
+}
+.vu-seg.lit  { background: var(--meter-bar); }
+.vu-seg.peak { background: var(--meter-bar-peak); }
