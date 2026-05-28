@@ -24,8 +24,8 @@ struct DepsCheck {
 }
 
 #[tauri::command]
-fn recorder_start() -> Result<String, String> {
-    recorder_instance().start_session()
+fn recorder_start(app: tauri::AppHandle) -> Result<String, String> {
+    recorder_instance().start_session(app)
 }
 
 #[tauri::command]

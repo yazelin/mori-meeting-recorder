@@ -134,17 +134,11 @@ fn handle_chunk_f32(
     }
 
     if !out_i16.is_empty() {
-        let sumsq: f64 = out_i16.iter().map(|&x| (x as f64).powi(2)).sum();
-        let rms = (sumsq / out_i16.len() as f64).sqrt();
-        let rms_norm = rms / 32_768.0;
-        let db = if rms_norm > 0.0 {
-            20.0 * rms_norm.log10()
-        } else {
-            -120.0
-        };
+        let (peak_db, rms_db) = crate::audio::levels::compute_levels(&mono);
         let now = chrono::Utc::now().timestamp_millis() as u64;
         if let Ok(mut s) = signal.lock() {
-            s.peak_rms_db = db as f32;
+            s.peak_rms_db = rms_db;
+            s.peak_db = peak_db;
             s.last_sample_at_unix_ms = now;
         }
     }

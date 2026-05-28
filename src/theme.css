@@ -37,6 +37,9 @@
   --meter-bar:        var(--found-color);
   --meter-bar-peak:   var(--rec-accent);
   --meter-bar-bg:     rgba(255,255,255,0.06);
+  --vu-seg-w:  6px;
+  --vu-seg-gap: 2px;
+  --vu-seg-h:  18px;
 
   /* Seg pill token(留給 PR3) */
   --seg-pill-public-bg:   rgba(77, 242, 153, 0.18);
@@ -321,3 +324,134 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
   color: var(--trans-accent);
   opacity: 0.8;
 }
+
+/* VU meter grid — 24 等寬 segment,水平排,左對齊。 */
+.vu-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vu-seg-gap, 2px);
+  height: var(--vu-seg-h, 18px);
+}
+.vu-seg {
+  width: var(--vu-seg-w, 6px);
+  height: 100%;
+  background: var(--meter-bar-bg);
+  border-radius: 1px;
+  transition: background 0.05s linear;
+}
+.vu-seg.lit  { background: var(--meter-bar); }
+.vu-seg.peak { background: var(--meter-bar-peak); }
+
+/* Track panel — Record tab 雙軌的一張卡片。Mock 04 v2 的 micro-card 視覺。 */
+.track-panel {
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.track-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.track-panel-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 120px;
+  color: var(--text);
+  font-weight: 500;
+}
+.track-panel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-dim);
+}
+.track-panel-dot.sys { background: var(--found-color); }
+.track-panel-dot.mic { background: var(--waiting-color); }
+.track-panel-meter-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.track-panel-db {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--text-secondary);
+  min-width: 50px;
+  text-align: right;
+}
+.track-panel-source {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 9.5px;
+  color: var(--text-dim);
+}
+
+/* Record tab 控制列 — mock 04 v2 的「● REC 00:12:34 ─── [Stop]」橫向 layout。 */
+.record-control-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  margin: 12px 0;
+}
+.record-control-bar .control-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+.record-control-bar .control-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.record-control-bar .control-dot.recording { background: var(--danger-color); animation: dot-pulse 1.4s ease-in-out infinite; }
+.record-control-bar .control-dot.transcribing { background: var(--waiting-color); }
+.record-control-bar .control-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text-secondary);
+}
+.record-control-bar .control-label.recording { color: var(--rec-accent); }
+.record-control-bar .control-label.transcribing { color: var(--trans-accent); }
+.record-control-bar .control-time {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.record-control-bar .control-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: var(--danger-color);
+  color: white;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.record-control-bar .control-action[data-state="idle"]    { background: var(--rec-accent); }
+.record-control-bar .control-action[data-state="recording"] { background: var(--danger-color); }
+.record-control-bar .control-action[data-state="transcribing"] {
+  background: transparent;
+  color: var(--trans-accent);
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+.record-control-bar .control-action:hover:not(:disabled) { opacity: 0.88; }
+.record-control-bar .control-action:active:not(:disabled) { transform: scale(0.96); }
