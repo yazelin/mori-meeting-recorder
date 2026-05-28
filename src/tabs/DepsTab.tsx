@@ -24,34 +24,31 @@ export default function DepsTab() {
   return (
     <div>
       <h3 style={{ marginTop: 0 }}>{t("deps.title")}</h3>
-      <p style={{ fontSize: 12, opacity: 0.7 }}>{t("deps.hint")}</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <p style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 12 }}>{t("deps.hint")}</p>
+
+      <div style={{ display: "flex", flexDirection: "column" }}>
         <DepRow label={t("deps.whisper_cli")} ok={deps?.whisper_cli_ok ?? false} path={deps?.whisper_cli_path ?? "—"} t={t} />
         <DepRow label={t("deps.model")} ok={deps?.model_ok ?? false} path={deps?.model_path ?? "—"} t={t} />
       </div>
       <button className="mmr-btn" onClick={recheck} style={{ marginTop: 12 }}>{t("deps.recheck")}</button>
 
-      <h4 style={{ marginTop: 18, marginBottom: 6 }}>{t("deps.linux_install")}</h4>
-      <pre style={{ background: "var(--c-surface)", padding: 10, borderRadius: 6, fontSize: 11, overflow: "auto" }}>
-        {LINUX_CMD}
-      </pre>
+      <h4>{t("deps.linux_install")}</h4>
+      <pre className="code-block">{LINUX_CMD}</pre>
 
-      <h4 style={{ marginTop: 14, marginBottom: 6 }}>{t("deps.windows_install")}</h4>
-      <pre style={{ background: "var(--c-surface)", padding: 10, borderRadius: 6, fontSize: 11, overflow: "auto" }}>
-        {WINDOWS_CMD}
-      </pre>
+      <h4>{t("deps.windows_install")}</h4>
+      <pre className="code-block">{WINDOWS_CMD}</pre>
     </div>
   );
 }
 
 function DepRow({ label, ok, path, t }: { label: string; ok: boolean; path: string; t: (k: string) => string }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span style={{ minWidth: 140 }}>{label}</span>
-      <span style={{ color: ok ? "var(--c-accent)" : "var(--c-danger)" }}>
+    <div className="dep-row">
+      <span className="label">{label}</span>
+      <span className={ok ? "ok" : "miss"}>
         {ok ? t("deps.found") : t("deps.missing")}
       </span>
-      <code style={{ fontSize: 11, opacity: 0.6, marginLeft: "auto" }}>{path}</code>
+      <code>{path}</code>
     </div>
   );
 }
