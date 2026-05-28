@@ -59,8 +59,14 @@ export default function RecordTab() {
   const onStartStop = async () => {
     setErr(null);
     try {
-      if (recState === "recording") await invoke("recorder_stop");
-      else if (recState === "idle") await invoke("recorder_start");
+      if (recState === "recording") {
+        await invoke("recorder_stop");
+        // stop_session 完成 → 立刻 refetch + 清掉 levels(VU 不要繼續顯示 stale data),
+        // 不等 500ms polling 下個 tick(中間 lock contention 可能讓 polling fail/吞)。
+        setLevels(null);
+        const s = await invoke<Status>("recorder_status");
+        setStatus(s);
+      } else if (recState === "idle") await invoke("recorder_start");
     } catch (e: any) {
       setErr(String(e));
       console.error(e);

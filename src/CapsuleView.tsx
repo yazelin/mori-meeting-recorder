@@ -46,8 +46,11 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
   const onStartStop = async () => {
     setErr(null);
     try {
-      if (status?.state === "recording") await invoke("recorder_stop");
-      else await invoke("recorder_start");
+      if (status?.state === "recording") {
+        await invoke("recorder_stop");
+        // 立刻 refetch,不等 polling 下個 tick(stop_session brief lock 可能讓 polling fail 吞)。
+        setStatus(await invoke<RecorderStatus>("recorder_status"));
+      } else await invoke("recorder_start");
     } catch (e: any) {
       setErr(String(e));
       console.error(e);
