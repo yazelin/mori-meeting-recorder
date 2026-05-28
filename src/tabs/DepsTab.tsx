@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
+import CopyCodeBlock from "../components/CopyCodeBlock";
 
 type DepsCheck = {
   whisper_cli_ok: boolean;
@@ -9,7 +10,7 @@ type DepsCheck = {
   model_path: string;
 };
 
-const LINUX_CMD = "bash <(curl -fsSL https://raw.githubusercontent.com/yazelin/mori-meeting-recorder/main/scripts/install-whisper-linux.sh)";
+const LINUX_CMD = "curl -fsSL https://raw.githubusercontent.com/yazelin/mori-meeting-recorder/main/scripts/install-whisper-linux.sh | bash";
 const WINDOWS_CMD = "iwr https://raw.githubusercontent.com/yazelin/mori-meeting-recorder/main/scripts/install-whisper-windows.ps1 | iex";
 
 export default function DepsTab() {
@@ -33,10 +34,10 @@ export default function DepsTab() {
       <button className="mmr-btn" onClick={recheck} style={{ marginTop: 12 }}>{t("deps.recheck")}</button>
 
       <h4>{t("deps.linux_install")}</h4>
-      <pre className="code-block">{LINUX_CMD}</pre>
+      <CopyCodeBlock code={LINUX_CMD} />
 
       <h4>{t("deps.windows_install")}</h4>
-      <pre className="code-block">{WINDOWS_CMD}</pre>
+      <CopyCodeBlock code={WINDOWS_CMD} />
     </div>
   );
 }

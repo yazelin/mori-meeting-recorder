@@ -283,6 +283,9 @@ html, body {
   color: var(--text-secondary);
   overflow-x: auto;
   white-space: pre;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 h3, h4 { font-weight: 600; }
@@ -537,3 +540,27 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
   transition: background 0.15s, color 0.15s;
 }
 .meeting-card .mc-open:hover { background: var(--btn-bg-hover); color: var(--icon-hover); }
+
+/* 包住 code-block 的容器,提供 copy 按鈕的相對定位。 */
+.code-block-wrap {
+  position: relative;
+  margin: 4px 0;
+}
+.code-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.code-block-wrap:hover .code-copy-btn { opacity: 1; }
+.code-copy-btn:hover { background: var(--btn-bg-hover); color: var(--text); }
+.code-copy-btn.copied { color: var(--found-color); }
