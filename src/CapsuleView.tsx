@@ -25,7 +25,7 @@ const startDragOnMouseDown = (e: React.MouseEvent) => {
   if (e.button !== 0) return;
   const target = e.target as HTMLElement;
   if (target.closest("button")) return;
-  getCurrentWindow().startDragging().catch(() => {});
+  getCurrentWindow().startDragging().catch((e) => console.error("startDragging failed:", e));
 };
 
 export default function CapsuleView({ onExpand }: { onExpand: () => void }) {

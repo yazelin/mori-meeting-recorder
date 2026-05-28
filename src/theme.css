@@ -167,7 +167,7 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--btn-bg);
+  background: transparent;
   color: var(--icon-color);
   border: none;
   border-radius: 8px;
