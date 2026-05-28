@@ -110,9 +110,13 @@ impl Recorder {
         // === VU meter 50ms emit loop ===
         // Recorder is Arc-singleton via OnceLock, so we clone the Arc and let
         // the spawned task hold its own ref. The task self-stops when state != Recording.
+        //
+        // Use tauri::async_runtime::spawn (NOT tokio::spawn): sync Tauri commands
+        // may run on threads without a tokio runtime context, where tokio::spawn
+        // panics ("there is no reactor running") and crashes the process.
         let recorder = instance();
         let app_for_task = app.clone();
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_millis(50));
             // First tick fires immediately — that's fine, just emits initial silence
             loop {

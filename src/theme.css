@@ -541,10 +541,14 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 }
 .meeting-card .mc-open:hover { background: var(--btn-bg-hover); color: var(--icon-hover); }
 
-/* 包住 code-block 的容器,提供 copy 按鈕的相對定位。 */
+/* 包住 code-block 的容器,提供 copy 按鈕的相對定位。
+ * user-select 也要在 wrap 上明指,因為 body { user-select: none } 透過 wrap
+ * cascade 到 <pre>;WebKitGTK 上 child override 偶爾不認,需在 wrap 也設 text。 */
 .code-block-wrap {
   position: relative;
   margin: 4px 0;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .code-copy-btn {
   position: absolute;
