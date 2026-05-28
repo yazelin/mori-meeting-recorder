@@ -60,10 +60,11 @@ pub struct CaptureHandle {
     pub stop_flag: Arc<std::sync::atomic::AtomicBool>,
 }
 
-/// 過去 N ms 的 peak RMS — capsule 用來判斷「有沒有收到聲」。
+/// 過去 N ms 的 peak + RMS — capsule 用 RMS 判訊號;Record tab VU meter 用 peak。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SignalMeter {
-    pub peak_rms_db: f32, // -inf..0,-40 以下視為靜音
+    pub peak_rms_db: f32,  // RMS in dB(歷史命名,別動,capsule has_signal 用)
+    pub peak_db: f32,      // 瞬時 peak in dB(VU meter peak segment 用)
     pub last_sample_at_unix_ms: u64,
 }
 
