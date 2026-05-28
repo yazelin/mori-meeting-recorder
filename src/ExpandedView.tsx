@@ -10,26 +10,22 @@ export default function ExpandedView({ onCollapse }: { onCollapse: () => void })
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("record");
 
-  const TabBtn = ({ id, label }: { id: Tab; label: string }) => (
-    <button
-      className="mmr-btn"
-      onClick={() => setTab(id)}
-      style={{ borderColor: tab === id ? "var(--c-accent)" : "var(--c-border)" }}
-    >
-      {label}
-    </button>
-  );
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: "1px solid var(--c-border)" }}>
-        <TabBtn id="record" label={t("tabs.record")} />
-        <TabBtn id="sessions" label={t("tabs.sessions")} />
-        <TabBtn id="deps" label={t("tabs.deps")} />
-        <span style={{ flex: 1 }} />
-        <button className="mmr-btn" onClick={onCollapse}>▴</button>
+    <div id="view-expanded" style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+      <div className="expanded-header" data-tauri-drag-region>
+        <button className={`tab-btn ${tab === "record" ? "active" : ""}`} onClick={() => setTab("record")}>
+          {t("tabs.record")}
+        </button>
+        <button className={`tab-btn ${tab === "sessions" ? "active" : ""}`} onClick={() => setTab("sessions")}>
+          {t("tabs.sessions")}
+        </button>
+        <button className={`tab-btn ${tab === "deps" ? "active" : ""}`} onClick={() => setTab("deps")}>
+          {t("tabs.deps")}
+        </button>
+        <span style={{ flex: 1 }} data-tauri-drag-region />
+        <button className="icon-btn" onClick={onCollapse} title="collapse">▴</button>
       </div>
-      <div style={{ flex: 1, overflow: "auto", padding: 14 }}>
+      <div className="expanded-body" style={{ flex: 1 }}>
         {tab === "record" && <RecordTab />}
         {tab === "sessions" && <SessionsTab />}
         {tab === "deps" && <DepsTab />}

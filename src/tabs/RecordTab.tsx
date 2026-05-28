@@ -8,6 +8,7 @@ export default function RecordTab() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<Status | null>(null);
   const [lastSession, setLastSession] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     const tick = async () => {
@@ -18,42 +19,65 @@ export default function RecordTab() {
     return () => clearInterval(id);
   }, []);
 
-  const start = async () => { try { await invoke("recorder_start"); } catch (e) { console.error(e); } };
+  const start = async () => {
+    setErr(null);
+    try { await invoke("recorder_start"); } catch (e: any) { setErr(String(e)); console.error(e); }
+  };
   const stop = async () => {
+    setErr(null);
     try {
       const id = await invoke<string>("recorder_stop");
       setLastSession(id);
-    } catch (e) { console.error(e); }
+    } catch (e: any) { setErr(String(e)); console.error(e); }
   };
   const openDir = async () => {
     if (lastSession) await invoke("open_session_dir", { sessionId: lastSession });
   };
 
+  const isRecording = status?.state === "recording";
+  const isTranscribing = status?.state === "transcribing";
+
   return (
     <div>
-      <p style={{ background: "var(--c-pill-off)", padding: 10, borderRadius: 6, fontSize: 12 }}>
-        ⚠ {t("record.warning")}
-      </p>
+      <div className="callout">⚠ {t("record.warning")}</div>
+
       <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
-        {status?.state === "recording" ? (
-          <button className="mmr-btn" onClick={stop} style={{ fontSize: 16, padding: "10px 24px" }}>
+        {isRecording ? (
+          <button className="mmr-btn danger lg" onClick={stop}>
             ■ {t("record.stop_button")}
           </button>
         ) : (
-          <button className="mmr-btn" onClick={start} disabled={status?.state === "transcribing"} style={{ fontSize: 16, padding: "10px 24px" }}>
+          <button className="mmr-btn primary lg" onClick={start} disabled={isTranscribing}>
             ▶ {t("record.start_button")}
           </button>
         )}
       </div>
+
       <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
-        <span className={`mmr-pill ${status?.system_signal ? "on" : ""}`}><span className="mmr-pill-dot" /> {t("capsule.system_pill")}</span>
-        <span className={`mmr-pill ${status?.mic_signal ? "on" : ""}`}><span className="mmr-pill-dot" /> {t("capsule.mic_pill")}</span>
+        <span className={`signal-pill ${status?.system_signal ? "on" : ""}`}>
+          <span className="signal-pill-dot" /> {t("capsule.system_pill")}
+        </span>
+        <span className={`signal-pill ${status?.mic_signal ? "on" : ""}`}>
+          <span className="signal-pill-dot" /> {t("capsule.mic_pill")}
+        </span>
       </div>
-      {status?.state === "transcribing" && <p style={{ marginTop: 16, opacity: 0.7 }}>{t("record.transcribing_hint")}</p>}
+
+      {err && (
+        <div className="callout" style={{ marginTop: 12, color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.30)", background: "rgba(255,99,99,0.08)" }}>
+          ⚠ {err}
+        </div>
+      )}
+
+      {isTranscribing && (
+        <p style={{ marginTop: 16, color: "var(--text-secondary)" }}>{t("record.transcribing_hint")}</p>
+      )}
+
       {lastSession && status?.state === "idle" && (
-        <div style={{ marginTop: 16 }}>
-          ✓ {t("record.done_title")}: <code>{lastSession}</code>
-          <button className="mmr-btn" onClick={openDir} style={{ marginLeft: 8 }}>{t("record.open_folder")}</button>
+        <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: "var(--found-color)" }}>✓</span>
+          <span>{t("record.done_title")}:</span>
+          <code style={{ fontSize: 11, color: "var(--text-dim)" }}>{lastSession}</code>
+          <button className="mmr-btn" onClick={openDir}>{t("record.open_folder")}</button>
         </div>
       )}
     </div>

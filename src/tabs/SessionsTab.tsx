@@ -15,18 +15,18 @@ export default function SessionsTab() {
   return (
     <div>
       <h3 style={{ marginTop: 0 }}>{t("sessions.title")}</h3>
-      <p style={{ fontSize: 12, opacity: 0.7 }}>{t("sessions.hint")}</p>
+      <p style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 12 }}>{t("sessions.hint")}</p>
       {sessions.length === 0 ? (
-        <div style={{ opacity: 0.6 }}>{t("sessions.empty")}</div>
+        <div style={{ color: "var(--text-dim)" }}>{t("sessions.empty")}</div>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {sessions.map((id) => (
-            <li key={id} style={{ padding: "8px 0", borderBottom: "1px solid var(--c-border)" }}>
-              <button className="mmr-btn" onClick={() => open(id)}>📁</button>
-              <code style={{ marginLeft: 8 }}>{id}</code>
-            </li>
+            <div key={id} className="session-row" onClick={() => open(id)}>
+              <span style={{ fontSize: 14 }}>📁</span>
+              <code style={{ fontSize: 11, color: "var(--text-secondary)" }}>{id}</code>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
