@@ -134,11 +134,13 @@ fn handle_chunk_f32(
     }
 
     if !out_i16.is_empty() {
-        let (peak_db, rms_db) = crate::audio::levels::compute_levels(&mono);
+        let (peak_db_raw, rms_db_raw) = crate::audio::levels::compute_levels(&mono);
         let now = chrono::Utc::now().timestamp_millis() as u64;
         if let Ok(mut s) = signal.lock() {
-            s.peak_rms_db = rms_db;
-            s.peak_db = peak_db;
+            // Smoothing same as Linux:fast attack, slow release(30 dB/秒)。詳細註解在 linux.rs。
+            let dt_ms = now.saturating_sub(s.last_sample_at_unix_ms).clamp(1, 500) as f32;
+            s.peak_rms_db = crate::audio::levels::smooth_db(s.peak_rms_db, rms_db_raw, 30.0, dt_ms);
+            s.peak_db = crate::audio::levels::smooth_db(s.peak_db, peak_db_raw, 30.0, dt_ms);
             s.last_sample_at_unix_ms = now;
         }
     }
