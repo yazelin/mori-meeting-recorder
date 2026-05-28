@@ -2,6 +2,7 @@
 
 mod audio;
 mod exporter;
+mod manifest;
 mod session_store;
 mod transcribe;
 
