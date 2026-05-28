@@ -42,6 +42,115 @@ pub fn new_session_id(now: chrono::DateTime<chrono::Local>) -> String {
     format!("meeting-{}", now.format("%Y%m%d-%H%M%S"))
 }
 
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SessionSummary {
+    pub id: String,
+    pub started_at: String,
+    pub duration_secs: u64,
+    pub public_segs: u32,
+    pub internal_segs: u32,
+    pub preview: Option<String>,
+    pub corrupt: bool,
+}
+
+pub fn read_session_summary(id: &str, base: &std::path::Path) -> SessionSummary {
+    let store = SessionStore { session_id: id.to_string(), root: base.join(id) };
+    let timeline_path = store.timeline_path();
+    let timeline_str = match std::fs::read_to_string(&timeline_path) {
+        Ok(s) => s,
+        Err(_) => {
+            return SessionSummary {
+                id: id.to_string(),
+                started_at: String::new(),
+                duration_secs: 0,
+                public_segs: 0,
+                internal_segs: 0,
+                preview: None,
+                corrupt: true,
+            };
+        }
+    };
+    let v: serde_json::Value = match serde_json::from_str(&timeline_str) {
+        Ok(v) => v,
+        Err(_) => {
+            return SessionSummary {
+                id: id.to_string(),
+                started_at: String::new(),
+                duration_secs: 0,
+                public_segs: 0,
+                internal_segs: 0,
+                preview: None,
+                corrupt: true,
+            };
+        }
+    };
+    let started_at = v.get("started_at").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let duration_secs = v.get("duration_secs").and_then(|x| x.as_u64()).unwrap_or(0);
+
+    let (public_segs, internal_segs) = count_segments_by_visibility(&store.root);
+    let preview = read_public_md_preview(&store.public_md_path());
+
+    SessionSummary {
+        id: id.to_string(),
+        started_at,
+        duration_secs,
+        public_segs,
+        internal_segs,
+        preview,
+        corrupt: false,
+    }
+}
+
+fn count_segments_by_visibility(session_dir: &std::path::Path) -> (u32, u32) {
+    let transcript_dir = session_dir.join("transcript");
+    let entries = match std::fs::read_dir(&transcript_dir) {
+        Ok(e) => e,
+        Err(_) => return (0, 0),
+    };
+    let mut pub_count = 0_u32;
+    let mut int_count = 0_u32;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("jsonl") { continue; }
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        for line in content.lines() {
+            if line.trim().is_empty() { continue; }
+            let v: serde_json::Value = match serde_json::from_str(line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            match v.get("visibility").and_then(|x| x.as_str()) {
+                Some("public")   => pub_count += 1,
+                Some("internal") => int_count += 1,
+                _ => {}
+            }
+        }
+    }
+    (pub_count, int_count)
+}
+
+fn read_public_md_preview(path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        if trimmed.starts_with('#') { continue; }
+        if trimmed.starts_with('>') { continue; }
+        if trimmed.starts_with("_(") { return None; }
+        let mut s = trimmed.to_string();
+        if s.chars().count() > 120 {
+            s = s.chars().take(120).collect::<String>() + "…";
+        }
+        return Some(s);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,5 +182,73 @@ mod tests {
         let now = chrono::Local.with_ymd_and_hms(2026, 5, 28, 14, 30, 0).unwrap();
         let id = new_session_id(now);
         assert_eq!(id, "meeting-20260528-143000");
+    }
+
+    #[test]
+    fn read_session_summary_missing_timeline_returns_corrupt() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("meeting-x")).unwrap();
+        let s = read_session_summary("meeting-x", tmp.path());
+        assert!(s.corrupt);
+        assert_eq!(s.id, "meeting-x");
+        assert_eq!(s.public_segs, 0);
+    }
+
+    fn write_test_file(path: &std::path::Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn read_session_summary_happy_path() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let session_dir = tmp.path().join("meeting-x");
+        write_test_file(
+            &session_dir.join("timeline.json"),
+            r#"{"schema_version":1,"session_id":"meeting-x","started_at":"2026-05-28T14:30:00+08:00","stopped_at":"2026-05-28T15:00:00+08:00","duration_secs":1800,"tracks":[],"exports":{"public":"","internal":"","timeline":""}}"#,
+        );
+        write_test_file(
+            &session_dir.join("transcript").join("system.segments.jsonl"),
+            r#"{"id":"s1","session_id":"meeting-x","track":"system","source_kind":"meeting_system","visibility":"public","start_ms":0,"end_ms":1000,"text":"a","is_final":true}
+{"id":"s2","session_id":"meeting-x","track":"system","source_kind":"meeting_system","visibility":"public","start_ms":1000,"end_ms":2000,"text":"b","is_final":true}
+"#,
+        );
+        write_test_file(
+            &session_dir.join("transcript").join("mic-internal.segments.jsonl"),
+            r#"{"id":"m1","session_id":"meeting-x","track":"mic-internal","source_kind":"mic_internal","visibility":"internal","start_ms":500,"end_ms":1500,"text":"c","is_final":true}
+"#,
+        );
+        write_test_file(
+            &session_dir.join("meeting.public.md"),
+            "# Meeting Notes — 2026-05-28 14:30\n\n> Source: meeting_system.\n\n客戶要求三週後上線\n再說\n",
+        );
+
+        let s = read_session_summary("meeting-x", tmp.path());
+        assert!(!s.corrupt);
+        assert_eq!(s.id, "meeting-x");
+        assert_eq!(s.started_at, "2026-05-28T14:30:00+08:00");
+        assert_eq!(s.duration_secs, 1800);
+        assert_eq!(s.public_segs, 2);
+        assert_eq!(s.internal_segs, 1);
+        assert_eq!(s.preview.as_deref(), Some("客戶要求三週後上線"));
+    }
+
+    #[test]
+    fn read_session_summary_empty_public_md_yields_none_preview() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let session_dir = tmp.path().join("m");
+        write_test_file(
+            &session_dir.join("timeline.json"),
+            r#"{"schema_version":1,"session_id":"m","started_at":"2026-05-28T14:30:00+08:00","stopped_at":"2026-05-28T14:30:01+08:00","duration_secs":1,"tracks":[],"exports":{"public":"","internal":"","timeline":""}}"#,
+        );
+        write_test_file(
+            &session_dir.join("meeting.public.md"),
+            "# Meeting Notes — empty\n\n> Source: meeting_system.\n\n_(no segments)_\n",
+        );
+        let s = read_session_summary("m", tmp.path());
+        assert!(!s.corrupt);
+        assert_eq!(s.preview, None);
     }
 }
