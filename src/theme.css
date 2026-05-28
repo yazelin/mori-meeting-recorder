@@ -285,3 +285,12 @@ html, body {
 h3, h4 { font-weight: 600; }
 h3 { font-size: calc(14px * var(--scale)); margin-bottom: 8px; }
 h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin: 14px 0 6px; }
+
+@keyframes spinnerRotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.spinner-rotate {
+  animation: spinnerRotate 1s linear infinite;
+  display: inline-flex;
+}
