@@ -39,12 +39,42 @@ impl Default for Recorder {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct TrackLevel {
+    pub peak_db: f32,
+    pub rms_db: f32,
+    pub signal: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LevelsPayload {
+    pub sys: TrackLevel,
+    pub mic: TrackLevel,
+}
+
+impl TrackLevel {
+    /// 從 SignalMeter snapshot 算 TrackLevel。Idle / 無訊號時 signal=false,peak/rms = -120 dB。
+    pub fn from_signal_meter(meter: &crate::audio::SignalMeter, now_unix_ms: u64) -> Self {
+        let signal = meter.has_signal(now_unix_ms);
+        if signal {
+            Self {
+                peak_db: meter.peak_db,
+                rms_db: meter.peak_rms_db,
+                signal: true,
+            }
+        } else {
+            Self { peak_db: -120.0, rms_db: -120.0, signal: false }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct RecorderStatus {
     pub state: State,
     pub elapsed_secs: u64,
     pub system_signal: bool,
     pub mic_signal: bool,
     pub session_id: Option<String>,
+    pub levels: Option<LevelsPayload>,
 }
 
 impl Recorder {
@@ -168,7 +198,7 @@ impl Recorder {
         let state = *self.state.lock().unwrap_or_else(|e| e.into_inner());
         let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
         let now_ms = chrono::Utc::now().timestamp_millis() as u64;
-        let (elapsed_secs, system_signal, mic_signal, session_id) = if let Some(s) = active.as_ref() {
+        let (elapsed_secs, system_signal, mic_signal, session_id, levels) = if let Some(s) = active.as_ref() {
             let elapsed = (Local::now() - s.started_at).num_seconds().max(0) as u64;
             let sys = s
                 .handles
@@ -182,9 +212,17 @@ impl Recorder {
                 .find(|h| h.source == SourceKind::MicInternal)
                 .map(|h| h.signal.lock().map(|sm| sm.has_signal(now_ms)).unwrap_or(false))
                 .unwrap_or(false);
-            (elapsed, sys, mic, Some(s.store.session_id.clone()))
+            let sys_level = s.handles.iter()
+                .find(|h| h.source == SourceKind::MeetingSystem)
+                .and_then(|h| h.signal.lock().ok().map(|sm| TrackLevel::from_signal_meter(&sm, now_ms)))
+                .unwrap_or(TrackLevel { peak_db: -120.0, rms_db: -120.0, signal: false });
+            let mic_level = s.handles.iter()
+                .find(|h| h.source == SourceKind::MicInternal)
+                .and_then(|h| h.signal.lock().ok().map(|sm| TrackLevel::from_signal_meter(&sm, now_ms)))
+                .unwrap_or(TrackLevel { peak_db: -120.0, rms_db: -120.0, signal: false });
+            (elapsed, sys, mic, Some(s.store.session_id.clone()), Some(LevelsPayload { sys: sys_level, mic: mic_level }))
         } else {
-            (0, false, false, None)
+            (0, false, false, None, None)
         };
         RecorderStatus {
             state,
@@ -192,6 +230,7 @@ impl Recorder {
             system_signal,
             mic_signal,
             session_id,
+            levels,
         }
     }
 }
