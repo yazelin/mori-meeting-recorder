@@ -1,30 +1,44 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
+import MeetingCard from "../components/MeetingCard";
+
+interface SessionSummary {
+  id: string;
+  started_at: string;
+  duration_secs: number;
+  public_segs: number;
+  internal_segs: number;
+  preview: string | null;
+  corrupt: boolean;
+}
 
 export default function SessionsTab() {
   const { t } = useTranslation();
-  const [sessions, setSessions] = useState<string[]>([]);
+  const [summaries, setSummaries] = useState<SessionSummary[] | null>(null);
 
   useEffect(() => {
-    invoke<string[]>("list_sessions").then((s) => setSessions(s.sort().reverse())).catch(() => setSessions([]));
+    invoke<SessionSummary[]>("list_sessions_detailed")
+      .then(setSummaries)
+      .catch(() => setSummaries([]));
   }, []);
 
-  const open = async (id: string) => { try { await invoke("open_session_dir", { sessionId: id }); } catch {} };
+  const onOpen = async (id: string) => {
+    try { await invoke("open_session_dir", { sessionId: id }); } catch {}
+  };
 
   return (
     <div>
       <h3 style={{ marginTop: 0 }}>{t("sessions.title")}</h3>
       <p style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 12 }}>{t("sessions.hint")}</p>
-      {sessions.length === 0 ? (
+      {summaries === null ? (
+        <div style={{ color: "var(--text-dim)" }}>讀取中…</div>
+      ) : summaries.length === 0 ? (
         <div style={{ color: "var(--text-dim)" }}>{t("sessions.empty")}</div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {sessions.map((id) => (
-            <div key={id} className="session-row" onClick={() => open(id)}>
-              <span style={{ fontSize: 14 }}>📁</span>
-              <code style={{ fontSize: 11, color: "var(--text-secondary)" }}>{id}</code>
-            </div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {summaries.map((s) => (
+            <MeetingCard key={s.id} summary={s} onOpen={onOpen} />
           ))}
         </div>
       )}

@@ -37,6 +37,8 @@
     "missing": "✗ missing",
     "recheck": "Re-check",
     "linux_install": "Linux install command",
-    "windows_install": "Windows install command"
+    "windows_install": "Windows install command",
+    "copy": "Copy",
+    "copied": "Copied ✓"
   }
 }

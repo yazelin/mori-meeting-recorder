@@ -37,6 +37,8 @@
     "missing": "✗ 缺",
     "recheck": "重新檢測",
     "linux_install": "Linux 安裝指令(複製到 terminal 跑)",
-    "windows_install": "Windows 安裝指令(複製到 PowerShell 跑)"
+    "windows_install": "Windows 安裝指令(複製到 PowerShell 跑)",
+    "copy": "複製",
+    "copied": "已複製 ✓"
   }
 }
