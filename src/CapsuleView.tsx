@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
+import SignalPill from "./components/SignalPill";
+import RecordButton from "./components/RecordButton";
+import ChevronDownIcon from "./components/icons/ChevronDownIcon";
 
 type RecorderStatus = {
   state: "idle" | "recording" | "transcribing";
@@ -52,42 +55,27 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
   };
 
   const recState = status?.state ?? "idle";
-  const isRecording = recState === "recording";
-  const isTranscribing = recState === "transcribing";
   const dotClass = `capsule-dot ${recState}`;
-  const statusLabel = isRecording ? "REC" : isTranscribing ? t("capsule.transcribing") : "idle";
+  const statusLabel = recState === "recording" ? "REC" : recState === "transcribing" ? t("capsule.transcribing") : "idle";
   const statusClass = `capsule-status ${recState}`;
 
   return (
-    <div className="capsule" onMouseDown={startDragOnMouseDown}>
+    <div className="capsule" data-state={recState} onMouseDown={startDragOnMouseDown}>
       <span className={dotClass} />
       <span className="capsule-title">Recorder</span>
       <span className={statusClass}>{statusLabel}</span>
       <span className="capsule-spacer" />
       <span className="capsule-time">{fmt(status?.elapsed_secs ?? 0)}</span>
       <span className="signal-pills">
-        <span className={`signal-pill ${status?.system_signal ? "on" : ""}`} title={t("capsule.system_pill")}>
-          <span className="signal-pill-dot" />SYS
-        </span>
-        <span className={`signal-pill ${status?.mic_signal ? "on" : ""}`} title={t("capsule.mic_pill")}>
-          <span className="signal-pill-dot" />MIC
-        </span>
+        <SignalPill kind="sys" active={!!status?.system_signal} />
+        <SignalPill kind="mic" active={!!status?.mic_signal} />
         {err && (
-          <span className="signal-pill err" title={err}>
-            ⚠
-          </span>
+          <span className="signal-pill err" title={err}>⚠</span>
         )}
       </span>
-      <button
-        className={`icon-btn ${isRecording ? "danger" : "primary"}`}
-        onClick={onStartStop}
-        disabled={isTranscribing}
-        title={isRecording ? t("capsule.stop") : t("capsule.start")}
-      >
-        {isRecording ? "■" : "▶"}
-      </button>
+      <RecordButton state={recState} onClick={onStartStop} />
       <button className="icon-btn" onClick={onExpand} title={t("capsule.expand")}>
-        ▾
+        <ChevronDownIcon size={12} />
       </button>
     </div>
   );
