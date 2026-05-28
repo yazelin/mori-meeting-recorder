@@ -22,10 +22,14 @@ const fmt = (s: number) => {
 // Tauri 2 + Wayland 下 `data-tauri-drag-region` 屬性不可靠(AgentPulse 也是這個結論)。
 // 改 imperative:mousedown 左鍵 + 非 button 區 → 呼 startDragging。
 const startDragOnMouseDown = (e: React.MouseEvent) => {
+  const tgt = e.target as HTMLElement;
+  console.log("[drag] mousedown", { button: e.button, tag: tgt.tagName, cls: tgt.className });
   if (e.button !== 0) return;
-  const target = e.target as HTMLElement;
-  if (target.closest("button")) return;
-  getCurrentWindow().startDragging().catch((e) => console.error("startDragging failed:", e));
+  if (tgt.closest("button")) { console.log("[drag] blocked by button"); return; }
+  console.log("[drag] calling startDragging");
+  getCurrentWindow().startDragging()
+    .then(() => console.log("[drag] startDragging resolved"))
+    .catch((e) => console.error("[drag] startDragging failed:", e));
 };
 
 export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
