@@ -294,3 +294,30 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
   animation: spinnerRotate 1s linear infinite;
   display: inline-flex;
 }
+
+/* Filled-style action button used inside the capsule;對應 mock 01/02/03 中央按鈕。
+ * 設計上跟 .icon-btn 並列;不用 var(--btn-bg),而是 state-specific filled bg。 */
+.record-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  color: white;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.record-btn:hover  { opacity: 0.88; }
+.record-btn:active { transform: scale(0.96); }
+.record-btn:disabled { cursor: not-allowed; }
+
+.record-btn[data-state="idle"]         { background: var(--rec-accent); }
+.record-btn[data-state="recording"]    { background: var(--danger-color); }
+.record-btn[data-state="transcribing"] {
+  background: transparent;
+  color: var(--trans-accent);
+  opacity: 0.8;
+}
