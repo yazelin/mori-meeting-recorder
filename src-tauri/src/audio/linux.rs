@@ -20,30 +20,84 @@ const CHUNK_SAMPLES: usize = (TARGET_RATE as u64 * CHUNK_MS / 1000) as usize; //
 const CHUNK_BYTES: usize = CHUNK_SAMPLES * 2; // i16 = 2 bytes
 
 /// 挑出符合 source 的 PulseAudio source name。
-/// MicInternal → `None`(讓 pulse 用 default input)。
-/// MeetingSystem → 第一個 `.monitor` 結尾 source(走 pactl 列)。
+///
+/// - MicInternal → `None`(讓 pulse 用 default input)。
+/// - MeetingSystem → **default sink** 的 `.monitor`(用 `pactl get-default-sink`),
+///   不是「第一個 .monitor」— PipeWire 機器常有多 sink(HDMI / analog / USB 麥克風),
+///   每 sink 都有自己的 monitor,挑錯 sink 等於錄到 SUSPENDED 的 idle monitor → 全是
+///   靜音。fallback chain:default sink.monitor → 第一個 RUNNING .monitor → 第一個 .monitor。
 pub fn pick_source(source: SourceKind) -> Result<Option<String>, String> {
     match source {
         SourceKind::MicInternal => Ok(None),
-        SourceKind::MeetingSystem => {
-            let out = Command::new("pactl")
-                .args(["list", "short", "sources"])
-                .output()
-                .map_err(|e| format!("spawn pactl: {e}(install pulseaudio-utils?)"))?;
-            if !out.status.success() {
-                return Err(format!("pactl exited {}", out.status));
+        SourceKind::MeetingSystem => pick_system_monitor().map(Some),
+    }
+}
+
+fn pick_system_monitor() -> Result<String, String> {
+    // 1. `pactl get-default-sink` → default sink 名稱
+    let default_sink = Command::new("pactl")
+        .args(["get-default-sink"])
+        .output()
+        .map_err(|e| format!("spawn pactl: {e}(install pulseaudio-utils?)"))?;
+    let default_monitor_name = if default_sink.status.success() {
+        let name = String::from_utf8_lossy(&default_sink.stdout).trim().to_string();
+        if name.is_empty() {
+            None
+        } else {
+            Some(format!("{name}.monitor"))
+        }
+    } else {
+        None
+    };
+
+    // 2. 列出所有 sources,做兩件事:(a) 確認 default monitor 存在;(b) 收集 fallback 候選。
+    let out = Command::new("pactl")
+        .args(["list", "short", "sources"])
+        .output()
+        .map_err(|e| format!("spawn pactl: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("pactl list exited {}", out.status));
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    let mut all_monitors: Vec<&str> = Vec::new();
+    let mut running_monitors: Vec<&str> = Vec::new();
+    let mut default_monitor_exists = false;
+    for line in stdout.lines() {
+        // 格式:ID NAME MODULE FORMAT CHANNELS STATE
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 2 || !cols[1].ends_with(".monitor") {
+            continue;
+        }
+        all_monitors.push(cols[1]);
+        // 最後一欄是 state(IDLE / RUNNING / SUSPENDED)
+        let state = cols.last().copied().unwrap_or("");
+        if state.eq_ignore_ascii_case("RUNNING") {
+            running_monitors.push(cols[1]);
+        }
+        if let Some(dm) = &default_monitor_name {
+            if cols[1] == dm.as_str() {
+                default_monitor_exists = true;
             }
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines() {
-                // 格式:ID NAME MODULE FORMAT CHANNELS STATE
-                let cols: Vec<&str> = line.split_whitespace().collect();
-                if cols.len() >= 2 && cols[1].ends_with(".monitor") {
-                    return Ok(Some(cols[1].to_string()));
-                }
-            }
-            Err("no .monitor source — run `pactl load-module module-loopback` or check PipeWire config".into())
         }
     }
+
+    // 3. 優先序:default sink.monitor → 第一個 RUNNING → 第一個 ANY
+    if default_monitor_exists {
+        if let Some(dm) = default_monitor_name {
+            eprintln!("system monitor: picked default sink monitor → {dm}");
+            return Ok(dm);
+        }
+    }
+    if let Some(rm) = running_monitors.first() {
+        eprintln!("system monitor: default sink monitor missing, picked first RUNNING → {rm}");
+        return Ok(rm.to_string());
+    }
+    if let Some(am) = all_monitors.first() {
+        eprintln!("system monitor: no default / RUNNING, picked first ANY (may be SUSPENDED) → {am}");
+        return Ok(am.to_string());
+    }
+    Err("no .monitor source — run `pactl load-module module-loopback` or check PipeWire config".into())
 }
 
 pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHandle, String> {

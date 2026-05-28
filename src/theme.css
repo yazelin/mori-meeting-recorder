@@ -335,15 +335,18 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
   gap: var(--vu-seg-gap, 2px);
   height: var(--vu-seg-h, 18px);
 }
+/* VU ballistics — fast attack, slow release。對齊真實 VU meter 物理慣性。
+ * .vu-seg 預設(unlit)→ 300ms 慢淡出;.lit / .peak 加上時 → 30ms 快點亮。
+ * 解掉「語音間音節停頓 → segment on/off → 看起來閃爍」的問題。 */
 .vu-seg {
   width: var(--vu-seg-w, 6px);
   height: 100%;
   background: var(--meter-bar-bg);
   border-radius: 1px;
-  transition: background 0.05s linear;
+  transition: background 300ms ease-out;
 }
-.vu-seg.lit  { background: var(--meter-bar); }
-.vu-seg.peak { background: var(--meter-bar-peak); }
+.vu-seg.lit  { background: var(--meter-bar);     transition: background 30ms linear; }
+.vu-seg.peak { background: var(--meter-bar-peak); transition: background 30ms linear; }
 
 /* Track panel — Record tab 雙軌的一張卡片。Mock 04 v2 的 micro-card 視覺。 */
 .track-panel {
