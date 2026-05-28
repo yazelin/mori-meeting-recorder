@@ -49,10 +49,23 @@ export default function RecordTab() {
   // Tauri "levels" event subscription — 50ms tick when recording
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
+    // Debug: 每秒印一次 listen "levels" 收到的次數,確認 emit/listen 真實頻率。
+    // 若 ~20/s 表示 Tauri 端 OK;若 ~1-2/s 表示 webview 端 throttle 或 React batch。
+    let count = 0;
+    const logTimer = setInterval(() => {
+      console.log(`[vu-debug] listen("levels") received ${count} events in last 1s`);
+      count = 0;
+    }, 1000);
     (async () => {
-      unlisten = await listen<LevelsPayload>("levels", (e) => setLevels(e.payload));
+      unlisten = await listen<LevelsPayload>("levels", (e) => {
+        count++;
+        setLevels(e.payload);
+      });
     })();
-    return () => { unlisten?.(); };
+    return () => {
+      unlisten?.();
+      clearInterval(logTimer);
+    };
   }, []);
 
   const recState: RecState = status?.state ?? "idle";
