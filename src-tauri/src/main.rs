@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 pub mod audio;
+pub mod config;
 pub mod exporter;
 pub mod manifest;
 pub mod recorder;
