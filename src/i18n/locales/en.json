@@ -1,0 +1,39 @@
+{
+  "capsule": {
+    "start": "▶",
+    "stop": "■",
+    "transcribing": "transcribing…",
+    "expand": "expand",
+    "system_pill": "meeting",
+    "mic_pill": "mic"
+  },
+  "tabs": {
+    "record": "Record",
+    "sessions": "Sessions",
+    "deps": "Deps"
+  },
+  "record": {
+    "start_button": "Start recording",
+    "stop_button": "Stop",
+    "transcribing_hint": "Transcribing both tracks (~0.5-1x realtime)…",
+    "done_title": "Done — session",
+    "open_folder": "Open folder",
+    "warning": "Client transcript uses meeting audio only; mic-internal is never exported by default."
+  },
+  "sessions": {
+    "title": "Sessions",
+    "hint": "Read-only. Click a row to open its folder.",
+    "empty": "No sessions yet."
+  },
+  "deps": {
+    "title": "Dependency check",
+    "hint": "Requires whisper.cpp CLI + a GGML model. Copy the install command below into your terminal.",
+    "whisper_cli": "whisper-cli",
+    "model": "ggml-small.bin model",
+    "found": "✓ found",
+    "missing": "✗ missing",
+    "recheck": "Re-check",
+    "linux_install": "Linux install command",
+    "windows_install": "Windows install command"
+  }
+}

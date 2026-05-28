@@ -1,0 +1,39 @@
+{
+  "capsule": {
+    "start": "▶",
+    "stop": "■",
+    "transcribing": "轉錄中…",
+    "expand": "展開",
+    "system_pill": "會議音訊",
+    "mic_pill": "內部麥克風"
+  },
+  "tabs": {
+    "record": "錄音",
+    "sessions": "Sessions",
+    "deps": "Deps"
+  },
+  "record": {
+    "start_button": "開始錄音",
+    "stop_button": "停止",
+    "transcribing_hint": "雙軌轉錄中,請稍候(通常 0.5-1x 即時)",
+    "done_title": "完成 — session",
+    "open_folder": "開資料夾",
+    "warning": "客戶版只使用會議音訊;內部麥克風不會預設匯出給客戶。"
+  },
+  "sessions": {
+    "title": "Session 列表",
+    "hint": "唯讀。點任一筆開資料夾。",
+    "empty": "目前還沒有任何 session。"
+  },
+  "deps": {
+    "title": "依賴檢查",
+    "hint": "Mori Meeting Recorder 需要 whisper.cpp CLI + GGML model。安裝指令在下方,自己貼 terminal 跑。",
+    "whisper_cli": "whisper-cli",
+    "model": "ggml-small.bin model",
+    "found": "✓ 找到",
+    "missing": "✗ 缺",
+    "recheck": "重新檢測",
+    "linux_install": "Linux 安裝指令(複製到 terminal 跑)",
+    "windows_install": "Windows 安裝指令(複製到 PowerShell 跑)"
+  }
+}
