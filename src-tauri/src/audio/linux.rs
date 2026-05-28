@@ -90,18 +90,13 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
                         .chunks_exact(2)
                         .map(|c| i16::from_le_bytes([c[0], c[1]]))
                         .collect();
-                    // RMS → SignalMeter
-                    let sumsq: f64 = samples.iter().map(|&x| (x as f64).powi(2)).sum();
-                    let rms = (sumsq / samples.len() as f64).sqrt();
-                    let rms_norm = rms / 32_768.0;
-                    let db = if rms_norm > 0.0 {
-                        20.0 * rms_norm.log10()
-                    } else {
-                        -120.0
-                    };
+                    // Convert i16 samples to normalized f32 for levels::compute_levels (expects ±1.0 range)
+                    let normalized: Vec<f32> = samples.iter().map(|&s| s as f32 / 32_768.0).collect();
+                    let (peak_db, rms_db) = crate::audio::levels::compute_levels(&normalized);
                     let now = chrono::Utc::now().timestamp_millis() as u64;
                     if let Ok(mut s) = signal_for_thread.lock() {
-                        s.peak_rms_db = db as f32;
+                        s.peak_rms_db = rms_db;
+                        s.peak_db = peak_db;
                         s.last_sample_at_unix_ms = now;
                     }
                     // 寫 WAV
