@@ -455,3 +455,16 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 }
 .record-control-bar .control-action:hover:not(:disabled) { opacity: 0.88; }
 .record-control-bar .control-action:active:not(:disabled) { transform: scale(0.96); }
+
+/* Sessions tab 卡片的 public/internal segs 標籤。 */
+.seg-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.seg-pill[data-tone="public"]   { background: var(--seg-pill-public-bg);   color: var(--seg-pill-public-fg); }
+.seg-pill[data-tone="internal"] { background: var(--seg-pill-internal-bg); color: var(--seg-pill-internal-fg); }
