@@ -1,11 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod audio;
-mod exporter;
-mod manifest;
-mod session_store;
-mod transcribe;
+pub mod audio;
+pub mod exporter;
+pub mod manifest;
+pub mod recorder;
+pub mod session_store;
+pub mod transcribe;
 
+#[allow(dead_code)] // main is the bin entry; lib build sees it as unused
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {

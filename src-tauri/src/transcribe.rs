@@ -68,6 +68,74 @@ pub fn parse_whisper_json(
     Ok(segs)
 }
 
+use std::path::Path;
+use std::process::Command;
+
+const WHISPER_BIN: &str = "whisper-cli";
+const WHISPER_MODEL_FILENAME: &str = "ggml-small.bin";
+
+pub fn whisper_bin_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join(".mori").join("bin").join(WHISPER_BIN))
+        .unwrap_or_else(|| std::path::PathBuf::from(WHISPER_BIN))
+}
+
+pub fn whisper_model_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join(".mori").join("models").join(WHISPER_MODEL_FILENAME))
+        .unwrap_or_else(|| std::path::PathBuf::from(WHISPER_MODEL_FILENAME))
+}
+
+/// 跑 whisper-cli 對單一 WAV 檔,回 Segments。檔案不存在或 binary 缺則跳過(回空)。
+pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind) -> Vec<Segment> {
+    if !wav.exists() {
+        return vec![];
+    }
+    let bin = whisper_bin_path();
+    let model = whisper_model_path();
+    if !bin.exists() || !model.exists() {
+        eprintln!("whisper deps missing — skipping transcribe");
+        return vec![];
+    }
+    let output = match Command::new(&bin)
+        .args([
+            "-m",
+            &model.to_string_lossy(),
+            "-f",
+            &wav.to_string_lossy(),
+            "--output-json-full",
+            "--no-prints",
+        ])
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("spawn whisper-cli: {e}");
+            return vec![];
+        }
+    };
+    if !output.status.success() {
+        eprintln!("whisper-cli exited {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
+        return vec![];
+    }
+    // whisper-cli `--output-json-full` 把 JSON 寫到 `<wav>.json`,不是 stdout
+    let json_path = wav.with_extension("wav.json");
+    let json = match std::fs::read_to_string(&json_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("read whisper json {}: {e}", json_path.display());
+            return vec![];
+        }
+    };
+    match parse_whisper_json(&json, session_id, kind) {
+        Ok(segs) => segs,
+        Err(e) => {
+            eprintln!("parse whisper json: {e}");
+            vec![]
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
