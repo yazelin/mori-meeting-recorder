@@ -80,6 +80,32 @@ fn list_sessions() -> Vec<String> {
 }
 
 #[tauri::command]
+fn list_sessions_detailed() -> Vec<session_store::SessionSummary> {
+    let dir = session_store::default_meetings_dir();
+    let mut summaries: Vec<session_store::SessionSummary> = std::fs::read_dir(&dir)
+        .ok()
+        .map(|it| {
+            it.filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if !name.starts_with("meeting-") { return None; }
+                    if !e.path().is_dir() { return None; }
+                    Some(session_store::read_session_summary(&name, &dir))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    summaries.sort_by(|a, b| {
+        match (a.corrupt, b.corrupt) {
+            (false, true) => std::cmp::Ordering::Less,
+            (true, false) => std::cmp::Ordering::Greater,
+            _ => b.started_at.cmp(&a.started_at),
+        }
+    });
+    summaries
+}
+
+#[tauri::command]
 fn open_session_dir(session_id: String) -> Result<(), String> {
     let dir = session_store::default_meetings_dir().join(&session_id);
     if !dir.exists() {
@@ -167,6 +193,7 @@ fn main() {
             deps_check,
             set_window_mode,
             list_sessions,
+            list_sessions_detailed,
             open_session_dir,
         ])
         .run(tauri::generate_context!())
