@@ -146,11 +146,16 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
                         .collect();
                     // Convert i16 samples to normalized f32 for levels::compute_levels (expects ±1.0 range)
                     let normalized: Vec<f32> = samples.iter().map(|&s| s as f32 / 32_768.0).collect();
-                    let (peak_db, rms_db) = crate::audio::levels::compute_levels(&normalized);
+                    let (peak_db_raw, rms_db_raw) = crate::audio::levels::compute_levels(&normalized);
                     let now = chrono::Utc::now().timestamp_millis() as u64;
                     if let Ok(mut s) = signal_for_thread.lock() {
-                        s.peak_rms_db = rms_db;
-                        s.peak_db = peak_db;
+                        // VU smoothing — fast attack, slow release at the data layer (NOT just CSS).
+                        // 解掉「語音 inter-syllabic 50ms 停頓 → raw RMS 掉到 -70 → bar 全暗」
+                        // 的閃爍問題。30 dB/s release = 1.5 dB per 50ms tick,300ms 停頓只下降 9 dB,
+                        // bar 還明顯亮著。
+                        let dt_ms = now.saturating_sub(s.last_sample_at_unix_ms).clamp(1, 500) as f32;
+                        s.peak_rms_db = crate::audio::levels::smooth_db(s.peak_rms_db, rms_db_raw, 30.0, dt_ms);
+                        s.peak_db = crate::audio::levels::smooth_db(s.peak_db, peak_db_raw, 30.0, dt_ms);
                         s.last_sample_at_unix_ms = now;
                     }
                     // 寫 WAV

@@ -61,11 +61,24 @@ pub struct CaptureHandle {
 }
 
 /// 過去 N ms 的 peak + RMS — capsule 用 RMS 判訊號;Record tab VU meter 用 peak。
-#[derive(Debug, Clone, Copy, Default)]
+/// 值已經被 audio loop 套過 fast-attack / slow-release smoothing(看 linux.rs / windows.rs)。
+#[derive(Debug, Clone, Copy)]
 pub struct SignalMeter {
-    pub peak_rms_db: f32,  // RMS in dB(歷史命名,別動,capsule has_signal 用)
-    pub peak_db: f32,      // 瞬時 peak in dB(VU meter peak segment 用)
+    pub peak_rms_db: f32,  // smoothed RMS in dB(capsule has_signal 用)
+    pub peak_db: f32,      // smoothed peak in dB(VU meter peak segment 用)
     pub last_sample_at_unix_ms: u64,
+}
+
+impl Default for SignalMeter {
+    fn default() -> Self {
+        // 預設 DB_FLOOR(-120),第一個 audio chunk 進來時 smooth_db 會 attack snap-up,
+        // 不會從 0 dB(full scale)花 1 秒 release 到實際值。
+        Self {
+            peak_rms_db: -120.0,
+            peak_db: -120.0,
+            last_sample_at_unix_ms: 0,
+        }
+    }
 }
 
 impl SignalMeter {
