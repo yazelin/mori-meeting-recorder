@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 
 type RecorderStatus = {
@@ -13,6 +14,15 @@ type RecorderStatus = {
 const fmt = (s: number) => {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+};
+
+// Tauri 2 + Wayland 下 `data-tauri-drag-region` 屬性不可靠(AgentPulse 也是這個結論)。
+// 改 imperative:mousedown 左鍵 + 非 button 區 → 呼 startDragging。
+const startDragOnMouseDown = (e: React.MouseEvent) => {
+  if (e.button !== 0) return;
+  const target = e.target as HTMLElement;
+  if (target.closest("button")) return;
+  getCurrentWindow().startDragging().catch(() => {});
 };
 
 export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
@@ -49,12 +59,12 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
   const statusClass = `capsule-status ${recState}`;
 
   return (
-    <div className="capsule" data-tauri-drag-region>
-      <span className={dotClass} data-tauri-drag-region />
-      <span className="capsule-title" data-tauri-drag-region>Recorder</span>
-      <span className={statusClass} data-tauri-drag-region>{statusLabel}</span>
-      <span className="capsule-spacer" data-tauri-drag-region />
-      <span className="capsule-time" data-tauri-drag-region>{fmt(status?.elapsed_secs ?? 0)}</span>
+    <div className="capsule" onMouseDown={startDragOnMouseDown}>
+      <span className={dotClass} />
+      <span className="capsule-title">Recorder</span>
+      <span className={statusClass}>{statusLabel}</span>
+      <span className="capsule-spacer" />
+      <span className="capsule-time">{fmt(status?.elapsed_secs ?? 0)}</span>
       <span className="signal-pills">
         <span className={`signal-pill ${status?.system_signal ? "on" : ""}`} title={t("capsule.system_pill")}>
           <span className="signal-pill-dot" />SYS
