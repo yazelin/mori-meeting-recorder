@@ -29,8 +29,13 @@ fn recorder_start(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn recorder_stop() -> Result<String, String> {
-    recorder_instance().stop_session()
+async fn recorder_stop() -> Result<String, String> {
+    // stop_session 內 block_on whisper.cpp 轉錄(秒~分鐘),sync command 會卡
+    // Tauri runtime worker → 前端 polling 整個排在後面 → UI 凍。把 sync 重活丟
+    // 進 spawn_blocking,Tauri 主 runtime 繼續處理 recorder_status polling。
+    tauri::async_runtime::spawn_blocking(|| recorder_instance().stop_session())
+        .await
+        .map_err(|e| format!("join blocking task: {e}"))?
 }
 
 #[tauri::command]
