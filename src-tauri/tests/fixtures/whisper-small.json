@@ -1,0 +1,22 @@
+{
+  "systeminfo": "AVX = 1 | AVX2 = 1 ...",
+  "model": { "type": "small", "multilingual": true },
+  "params": { "language": "auto", "translate": false },
+  "result": { "language": "zh" },
+  "transcription": [
+    {
+      "timestamps": { "from": "00:00:01,500", "to": "00:00:04,200" },
+      "offsets": { "from": 1500, "to": 4200 },
+      "text": " 我們希望下週三前看到版本。",
+      "tokens": [{ "p": 0.95 }, { "p": 0.92 }],
+      "confidence": -0.142
+    },
+    {
+      "timestamps": { "from": "00:00:04,500", "to": "00:00:07,800" },
+      "offsets": { "from": 4500, "to": 7800 },
+      "text": " 那邊測試環境準備好了嗎?",
+      "tokens": [],
+      "confidence": -0.218
+    }
+  ]
+}

@@ -8,6 +8,10 @@ description = "Standalone dual-track meeting recorder for the Mori universe (Obs
 name = "mori-meeting-recorder"
 path = "src/main.rs"
 
+[lib]
+name = "mori_meeting_recorder"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

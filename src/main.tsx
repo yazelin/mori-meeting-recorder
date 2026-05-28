@@ -1,9 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-
-function App() {
-  return <div style={{ padding: 16 }}>Mori Meeting Recorder — scaffold</div>;
-}
+import App from "./App";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode><App /></StrictMode>
