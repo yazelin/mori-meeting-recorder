@@ -53,10 +53,14 @@ pub struct LevelsPayload {
 }
 
 impl TrackLevel {
-    /// 從 SignalMeter snapshot 算 TrackLevel。Idle / 無訊號時 signal=false,peak/rms = -120 dB。
+    /// 從 SignalMeter snapshot 算 TrackLevel。
+    ///
+    /// **signal 語義**:「audio thread 活著 + 最近 500ms 有 sample 送進來」,**不**看 dB 高低。
+    /// VU meter 要能顯示低音量(-50 ~ -60 dB 的 mic 講話)的真實 level,如果用 `has_signal()`
+    /// 的 -40 dB 閾值,小聲講話會被誤判 idle → VU 全暗。-40 dB 閾值只給膠囊小圓點(綠/灰)用。
     pub fn from_signal_meter(meter: &crate::audio::SignalMeter, now_unix_ms: u64) -> Self {
-        let signal = meter.has_signal(now_unix_ms);
-        if signal {
+        let recent = now_unix_ms.saturating_sub(meter.last_sample_at_unix_ms) < 500;
+        if recent {
             Self {
                 peak_db: meter.peak_db,
                 rms_db: meter.peak_rms_db,
