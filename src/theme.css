@@ -395,3 +395,63 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
   font-size: 9.5px;
   color: var(--text-dim);
 }
+
+/* Record tab 控制列 — mock 04 v2 的「● REC 00:12:34 ─── [Stop]」橫向 layout。 */
+.record-control-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  margin: 12px 0;
+}
+.record-control-bar .control-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+.record-control-bar .control-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.record-control-bar .control-dot.recording { background: var(--danger-color); animation: dot-pulse 1.4s ease-in-out infinite; }
+.record-control-bar .control-dot.transcribing { background: var(--waiting-color); }
+.record-control-bar .control-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text-secondary);
+}
+.record-control-bar .control-label.recording { color: var(--rec-accent); }
+.record-control-bar .control-label.transcribing { color: var(--trans-accent); }
+.record-control-bar .control-time {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.record-control-bar .control-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: var(--danger-color);
+  color: white;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.record-control-bar .control-action[data-state="idle"]    { background: var(--rec-accent); }
+.record-control-bar .control-action[data-state="recording"] { background: var(--danger-color); }
+.record-control-bar .control-action[data-state="transcribing"] {
+  background: transparent;
+  color: var(--trans-accent);
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+.record-control-bar .control-action:hover:not(:disabled) { opacity: 0.88; }
+.record-control-bar .control-action:active:not(:disabled) { transform: scale(0.96); }
