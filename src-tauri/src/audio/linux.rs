@@ -6,6 +6,7 @@
 //! server 端做 resample / format conversion → 我們收到的就是 16kHz mono i16。
 
 use super::{writer::TrackWriter, CaptureHandle, SignalMeter, SourceKind};
+use libpulse_binding::def::BufferAttr;
 use libpulse_binding::sample::{Format, Spec};
 use libpulse_binding::stream::Direction;
 use libpulse_simple_binding::Simple;
@@ -112,6 +113,18 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
     }
 
     // libpulse 會 server-side 把 source 的 native format 降到我們要求的 16kHz mono i16 — 不用 resample
+    //
+    // BufferAttr 不傳 → pulse 預設 latency ~350ms,會把 chunks 攢一批一次倒給 client,
+    // audio thread 在 ~10ms 內 burst process 完然後 SignalMeter 停了 350ms 沒人寫,
+    // 過了 500ms recency check → signal=false → VU bar 閃爍。
+    // 顯指 fragsize = 1 chunk(50ms),強迫 pulse real-time delivery。其他欄 -1 = let pulse pick。
+    let buffer_attr = BufferAttr {
+        maxlength: (CHUNK_BYTES * 4) as u32, // 防 underrun;~200ms ring
+        fragsize: CHUNK_BYTES as u32,        // 每次 deliver 1 個 50ms chunk
+        tlength: u32::MAX,                   // playback only,record 不用
+        prebuf: u32::MAX,                    // playback only
+        minreq: u32::MAX,                    // playback only
+    };
     let simple = Simple::new(
         None,                    // 預設 PA server(PipeWire 完全相容)
         "mori-meeting-recorder", // app name
@@ -122,8 +135,8 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
             SourceKind::MeetingSystem => "system-loopback",
         },
         &spec,
-        None, // 預設 channel map
-        None, // 預設 buffer attrs
+        None,                // 預設 channel map
+        Some(&buffer_attr), // 50ms fragsize → 真實 20fps delivery
     )
     .map_err(|e| format!("pulse Simple::new: {e}"))?;
 
