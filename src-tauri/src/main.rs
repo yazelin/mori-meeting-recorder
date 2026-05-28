@@ -56,7 +56,7 @@ fn deps_check() -> DepsCheck {
 #[tauri::command]
 fn set_window_mode(window: tauri::Window, mode: String) -> Result<(), String> {
     let (w, h) = match mode.as_str() {
-        "collapsed" => (360.0, 60.0),
+        "collapsed" => (380.0, 44.0),
         "expanded" => (720.0, 480.0),
         other => return Err(format!("unknown mode: {other}")),
     };
