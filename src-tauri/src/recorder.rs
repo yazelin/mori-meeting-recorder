@@ -4,6 +4,7 @@ use crate::audio::{self, CaptureHandle, SourceKind};
 use crate::exporter::{export, Exports, SessionMeta, TrackMeta};
 use crate::session_store::{default_meetings_dir, new_session_id, SessionStore};
 use crate::transcribe::{Segment};
+use tauri::Emitter;
 use chrono::{DateTime, Local};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -78,7 +79,7 @@ pub struct RecorderStatus {
 }
 
 impl Recorder {
-    pub fn start_session(&self) -> Result<String, String> {
+    pub fn start_session(&self, app: tauri::AppHandle) -> Result<String, String> {
         let mut active_guard = self.active.lock().map_err(|e| e.to_string())?;
         if active_guard.is_some() {
             return Err("session already running".into());
@@ -105,6 +106,27 @@ impl Recorder {
             handles,
         });
         *self.state.lock().map_err(|e| e.to_string())? = State::Recording;
+
+        // === VU meter 50ms emit loop ===
+        // Recorder is Arc-singleton via OnceLock, so we clone the Arc and let
+        // the spawned task hold its own ref. The task self-stops when state != Recording.
+        let recorder = instance();
+        let app_for_task = app.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_millis(50));
+            // First tick fires immediately — that's fine, just emits initial silence
+            loop {
+                tick.tick().await;
+                let status = recorder.status();
+                if !matches!(status.state, State::Recording) {
+                    break;
+                }
+                if let Some(levels) = status.levels.clone() {
+                    let _ = app_for_task.emit("levels", levels);
+                }
+            }
+        });
+
         Ok(session_id)
     }
 
