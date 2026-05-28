@@ -2,6 +2,7 @@
 
 mod audio;
 mod session_store;
+mod transcribe;
 
 fn main() {
     tauri::Builder::default()
