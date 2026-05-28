@@ -1,6 +1,7 @@
 //! 音訊 capture / write — per-track WAV writer + 平台 capture impl(linux / windows)。
 
 pub mod writer;
+pub mod levels;
 
 use serde::{Deserialize, Serialize};
 
