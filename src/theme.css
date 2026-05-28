@@ -373,15 +373,25 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
   color: var(--text);
   font-weight: 500;
 }
+/* TrackPanel dot — 反映該軌「現在有沒有偵測到聲音」(rmsDb > -40 dB)。
+ * 預設暗灰(沒在錄音 / 錄音中但靜音);加 .active class 才上色 + 脈動,
+ * 顏色維持身份區分(SYS=綠 / MIC=黃)。 */
 .track-panel-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--text-dim);
+  transition: background 200ms ease-out;
 }
-.track-panel-dot.sys { background: var(--found-color); }
-.track-panel-dot.mic { background: var(--waiting-color); }
+.track-panel-dot.sys.active {
+  background: var(--found-color);
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+.track-panel-dot.mic.active {
+  background: var(--waiting-color);
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
 .track-panel-meter-wrap {
   flex: 1;
   display: flex;

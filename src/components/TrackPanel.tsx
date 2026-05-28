@@ -25,11 +25,14 @@ export default function TrackPanel({ kind, label, sourceName, level }: Props) {
   const peakDb = level?.peak_db ?? -120;
   const rmsDb  = level?.rms_db ?? -120;
   const signal = level?.signal ?? false;
+  // dot "active" = 錄音中且這軌真的有聲音(rmsDb > -40 dB,跟 capsule has_signal 同邏輯)。
+  // 沒在錄音或這軌靜音 → dot 暗灰。
+  const dotActive = signal && rmsDb > -40;
   return (
     <div className="track-panel">
       <div className="track-panel-row">
         <span className="track-panel-label">
-          <span className={`track-panel-dot ${kind}`} />
+          <span className={`track-panel-dot ${kind}${dotActive ? " active" : ""}`} />
           <BarsIcon size={10} />
           {label}
         </span>
