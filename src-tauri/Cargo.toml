@@ -1,0 +1,38 @@
+[package]
+name = "mori-meeting-recorder"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone dual-track meeting recorder for the Mori universe (Observer Mode MVP)"
+
+[[bin]]
+name = "mori-meeting-recorder"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+hound = "3.5"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+
+# Linux:libpulse client API(PipeWire 完全相容,看得到 .monitor source)
+[target.'cfg(target_os = "linux")'.dependencies]
+libpulse-binding = "2"
+libpulse-simple-binding = "2"
+
+# Windows:cpal WASAPI loopback(對齊 mori-desktop)
+[target.'cfg(target_os = "windows")'.dependencies]
+cpal = "0.15"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
