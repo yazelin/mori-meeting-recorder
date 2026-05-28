@@ -49,16 +49,25 @@ export default function RecordTab() {
   // Tauri "levels" event subscription — 50ms tick when recording
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
-    // Debug: 每秒印一次 listen "levels" 收到的次數,確認 emit/listen 真實頻率。
-    // 若 ~20/s 表示 Tauri 端 OK;若 ~1-2/s 表示 webview 端 throttle 或 React batch。
+    // Debug: 印出 MIC rmsDb 看實際 smoothing 有沒有生效。
+    // 若 Rust smoothing 起作用,rmsDb 序列應該平滑(連續差 < 2 dB);
+    // 若還在 jitter(差 > 10 dB),代表 binary 沒重編。
     let count = 0;
+    const recentMicRms: number[] = [];
     const logTimer = setInterval(() => {
-      console.log(`[vu-debug] listen("levels") received ${count} events in last 1s`);
+      if (recentMicRms.length > 0) {
+        const arr = recentMicRms.map((v) => v.toFixed(0)).join(",");
+        console.log(`[vu-debug] events=${count}/s  MIC rmsDb samples: ${arr}`);
+      } else {
+        console.log(`[vu-debug] events=${count}/s  no MIC samples`);
+      }
       count = 0;
+      recentMicRms.length = 0;
     }, 1000);
     (async () => {
       unlisten = await listen<LevelsPayload>("levels", (e) => {
         count++;
+        if (recentMicRms.length < 10) recentMicRms.push(e.payload.mic.rms_db);
         setLevels(e.payload);
       });
     })();
