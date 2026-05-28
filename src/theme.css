@@ -84,9 +84,6 @@ html, body {
 .capsule[data-state="idle"] {
   box-shadow: none;
 }
-.capsule-status.recording {
-  color: var(--rec-accent);
-}
 
 @keyframes capsuleCollapseBounce {
   0%   { transform: translateY(-5px); }
