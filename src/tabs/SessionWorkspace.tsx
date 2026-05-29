@@ -62,6 +62,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   const [speakers, setSpeakers] = useState<SpeakerInfo[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   // UI state
   const [topic, setTopic] = useState("");
@@ -82,6 +83,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   const [speakerSaving, setSpeakerSaving] = useState<Record<string, boolean>>({});
 
   const loadAll = useCallback(async () => {
+    setLoadErr(null);
     try {
       const [mi, spk, segs] = await Promise.all([
         invoke<MeetingInfo>("read_meeting_info", { sessionId }),
@@ -98,8 +100,8 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
       setSpeakerEdits(edits);
       setSegments(segs);
     } catch (e: any) {
-      // non-fatal: show empty state
       console.error("SessionWorkspace loadAll:", e);
+      setLoadErr(String(e));
     } finally {
       setLoading(false);
     }
@@ -154,6 +156,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   };
 
   const renameSpeaker = async (id: string, display: string) => {
+    if (speakerSaving[id]) return;
     setSpeakerSaving((prev) => ({ ...prev, [id]: true }));
     try {
       await invoke("rename_speaker_cmd", { sessionId, id, display });
@@ -190,7 +193,6 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
 
   // Participant name suggestions from current participants field
   const participantOptions: SelectOption[] = [
-    { value: "", label: t("workspace.speaker_custom") },
     ...splitParticipants(participants).map((p) => ({ value: p, label: p })),
   ];
 
@@ -205,7 +207,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   return (
     <div>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: loadErr ? 4 : 14 }}>
         <button className="mmr-btn" onClick={onBack} style={{ flexShrink: 0 }}>
           {t("workspace.back")}
         </button>
@@ -213,6 +215,9 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
           {sessionId}
         </code>
       </div>
+      {loadErr && (
+        <div style={{ fontSize: 11, color: "var(--danger-color)", marginBottom: 14 }}>{loadErr}</div>
+      )}
 
       {/* Meeting info section */}
       <h4>{t("workspace.info_title")}</h4>
@@ -285,7 +290,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                     <Select
                       value={editVal}
                       options={[
-                        ...participantOptions.filter((o) => o.value !== ""),
+                        ...participantOptions,
                         { value: editVal, label: editVal },
                       ].filter((o, i, arr) => arr.findIndex((x) => x.value === o.value) === i)}
                       onChange={(v) => {
@@ -332,7 +337,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
           {segments.map((seg) => {
             const display = seg.speaker ? (speakerDisplay[seg.speaker] ?? seg.speaker) : t("workspace.unknown_speaker");
             return (
-              <div key={seg.id} style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 12, lineHeight: 1.5 }}>
+              <div key={`${seg.track}-${seg.id}`} style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 12, lineHeight: 1.5 }}>
                 <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 10, color: "var(--text-dim)", flexShrink: 0, paddingTop: 1 }}>
                   {fmtMs(seg.start_ms)}
                 </span>
