@@ -22,6 +22,11 @@ export default function DepsTab() {
   };
   useEffect(() => { recheck(); }, []);
 
+  // 目前選的模型(從 model_path 取檔名)→ 給對應的下載指令。換成 large-v3-turbo 時這裡就會
+  // 變成 turbo 的下載指令(全安裝 script 只抓 small,turbo 要另外下載)。
+  const modelFile = (deps?.model_path ?? "").split(/[\\/]/).pop() || "ggml-small.bin";
+  const modelDlCmd = `curl -L --fail -o "${deps?.model_path ?? `~/.mori/models/${modelFile}`}" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${modelFile}"`;
+
   return (
     <div>
       <h3 style={{ marginTop: 0 }}>{t("deps.title")}</h3>
@@ -32,6 +37,10 @@ export default function DepsTab() {
         <DepRow label={t("deps.model")} ok={deps?.model_ok ?? false} path={deps?.model_path ?? "—"} t={t} />
       </div>
       <button className="mmr-btn" onClick={recheck} style={{ marginTop: 12 }}>{t("deps.recheck")}</button>
+
+      <h4>{t("deps.download_model")}</h4>
+      <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "0 0 6px" }}>{t("deps.download_model_hint", { file: modelFile })}</p>
+      <CopyCodeBlock code={modelDlCmd} />
 
       <h4>{t("deps.linux_install")}</h4>
       <CopyCodeBlock code={LINUX_CMD} />
