@@ -16,11 +16,33 @@ const WINDOWS_CMD = "iwr https://raw.githubusercontent.com/yazelin/mori-meeting-
 export default function DepsTab() {
   const { t } = useTranslation();
   const [deps, setDeps] = useState<DepsCheck | null>(null);
+  const [dl, setDl] = useState<{ active: boolean; downloaded: number; total: number }>({ active: false, downloaded: 0, total: 0 });
+  const [dlErr, setDlErr] = useState<string | null>(null);
 
   const recheck = async () => {
     try { setDeps(await invoke<DepsCheck>("deps_check")); } catch {}
   };
   useEffect(() => { recheck(); }, []);
+
+  // app 內下載目前選的模型 + polling 進度 bar。
+  const downloadModel = async () => {
+    setDlErr(null);
+    setDl({ active: true, downloaded: 0, total: 0 });
+    const id = setInterval(async () => {
+      try { setDl(await invoke("download_progress")); } catch {}
+    }, 500);
+    try {
+      await invoke("download_model");
+      await recheck();
+    } catch (e: any) {
+      setDlErr(String(e));
+    } finally {
+      clearInterval(id);
+      setDl({ active: false, downloaded: 0, total: 0 });
+    }
+  };
+  const mb = (b: number) => (b / 1_000_000).toFixed(0);
+  const pct = dl.total > 0 ? Math.round((dl.downloaded / dl.total) * 100) : 0;
 
   // 目前選的模型(從 model_path 取檔名)→ 給對應的下載指令。換成 large-v3-turbo 時這裡就會
   // 變成 turbo 的下載指令(全安裝 script 只抓 small,turbo 要另外下載)。
@@ -39,8 +61,25 @@ export default function DepsTab() {
       <button className="mmr-btn" onClick={recheck} style={{ marginTop: 12 }}>{t("deps.recheck")}</button>
 
       <h4>{t("deps.download_model")}</h4>
-      <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "0 0 6px" }}>{t("deps.download_model_hint", { file: modelFile })}</p>
-      <CopyCodeBlock code={modelDlCmd} />
+      <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "0 0 8px" }}>{t("deps.download_model_hint", { file: modelFile })}</p>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button className="mmr-btn primary" onClick={downloadModel} disabled={dl.active}>
+          {dl.active ? t("deps.downloading") : t("deps.download_btn")}
+        </button>
+        {dl.active && (
+          <span style={{ fontSize: 11, color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums" }}>
+            {dl.total > 0 ? `${pct}% · ${mb(dl.downloaded)}/${mb(dl.total)} MB` : t("deps.downloading")}
+          </span>
+        )}
+      </div>
+      {dl.active && (
+        <div className="dl-bar"><div className="dl-bar-fill" style={{ width: dl.total > 0 ? `${pct}%` : "40%" }} /></div>
+      )}
+      {dlErr && <div className="callout" style={{ marginTop: 8, color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.3)", background: "rgba(255,99,99,0.08)" }}>⚠ {dlErr}</div>}
+      <details style={{ marginTop: 8 }}>
+        <summary style={{ fontSize: 10.5, color: "var(--text-dim)", cursor: "pointer" }}>{t("deps.or_terminal")}</summary>
+        <CopyCodeBlock code={modelDlCmd} />
+      </details>
 
       <h4>{t("deps.linux_install")}</h4>
       <CopyCodeBlock code={LINUX_CMD} />

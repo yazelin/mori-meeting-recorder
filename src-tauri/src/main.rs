@@ -15,11 +15,15 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
     LogicalSize, Manager, PhysicalPosition, Size, WebviewUrl, WebviewWindowBuilder,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// 浮動字幕視窗目前是否顯示中。set_captions 設定它;前端 CC 鈕 polling captions_visible
 /// 來反映真實狀態(否則錄音 auto-show 開了視窗,CC 鈕不會亮 — 兩邊狀態不同步)。
 static CAPTIONS_VISIBLE: AtomicBool = AtomicBool::new(false);
+
+// in-app 模型下載進度(前端 polling download_progress 顯示 % bar)。
+static DL_ACTIVE: AtomicBool = AtomicBool::new(false);
+static DL_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Serialize)]
 struct DepsCheck {
@@ -155,6 +159,77 @@ fn set_captions(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
 #[tauri::command]
 fn captions_visible() -> bool {
     CAPTIONS_VISIBLE.load(Ordering::Relaxed)
+}
+
+#[derive(Serialize)]
+struct DownloadProgress {
+    active: bool,
+    downloaded: u64,
+    total: u64,
+}
+
+/// 前端 polling 顯示下載 % bar。downloaded = 目前 .part(下載中)或正式檔的大小。
+#[tauri::command]
+fn download_progress() -> DownloadProgress {
+    let path = transcribe::whisper_model_path();
+    let part = std::path::PathBuf::from(format!("{}.part", path.display()));
+    let downloaded = std::fs::metadata(&part)
+        .or_else(|_| std::fs::metadata(&path))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    DownloadProgress {
+        active: DL_ACTIVE.load(Ordering::Relaxed),
+        downloaded,
+        total: DL_TOTAL.load(Ordering::Relaxed),
+    }
+}
+
+/// 在 app 內下載「目前 Settings 選的模型」(curl → `<path>.bin.part`,完成後 rename)。
+/// 先 HEAD 取總大小給進度 bar。下載是 blocking → spawn_blocking,UI 仍可 polling 進度。
+#[tauri::command]
+async fn download_model() -> Result<(), String> {
+    if DL_ACTIVE.swap(true, Ordering::Relaxed) {
+        return Err("download already in progress".into());
+    }
+    let result = tauri::async_runtime::spawn_blocking(|| -> Result<(), String> {
+        let path = transcribe::whisper_model_path();
+        let filename = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "ggml-small.bin".into());
+        let url =
+            format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir models: {e}"))?;
+        }
+        DL_TOTAL.store(0, Ordering::Relaxed);
+        if let Ok(out) = std::process::Command::new("curl").args(["-sIL", &url]).output() {
+            let headers = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            if let Some(len) = headers
+                .lines()
+                .filter_map(|l| l.strip_prefix("content-length:"))
+                .filter_map(|v| v.trim().parse::<u64>().ok())
+                .last()
+            {
+                DL_TOTAL.store(len, Ordering::Relaxed);
+            }
+        }
+        let part = format!("{}.part", path.display());
+        let status = std::process::Command::new("curl")
+            .args(["-L", "--fail", "-o", &part, &url])
+            .status()
+            .map_err(|e| format!("spawn curl: {e}"))?;
+        if !status.success() {
+            let _ = std::fs::remove_file(&part);
+            return Err(format!("curl 失敗({status})— 檢查網路 / 磁碟空間"));
+        }
+        std::fs::rename(&part, &path).map_err(|e| format!("rename: {e}"))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join download: {e}"));
+    DL_ACTIVE.store(false, Ordering::Relaxed);
+    result?
 }
 
 #[tauri::command]
@@ -308,6 +383,8 @@ fn main() {
             voice_input_stop,
             set_captions,
             captions_visible,
+            download_model,
+            download_progress,
             set_window_mode,
             list_sessions,
             list_sessions_detailed,
