@@ -12,6 +12,8 @@
 //! recorder 會把它 detached spawn(於是 supervisor 比 recorder 活得久,沒人用才自己關);
 //! 也可手動當 serve-script 跑。對齊 agentos-notebook/05-mori-migration/whisper-server-contract.md。
 
+// 直接 include 共享模組(不連 tauri)。整模組共用,本 bin 不會用到每個 pub fn → allow dead_code。
+#[allow(dead_code)]
 #[path = "../whisper_discovery.rs"]
 mod whisper_discovery;
 
@@ -97,32 +99,47 @@ fn free_port() -> Option<u16> {
         .map(|a| a.port())
 }
 
-/// 搶單例 lock。已存在:讀 pid,死的(stale)就接管,活的就讓出(別人正在跑)。
-fn acquire_lock() -> Result<std::path::PathBuf, String> {
+/// 搶單例 lock —— **pin 成 advisory flock**(契約 §8 HIGH):Unix = `flock(LOCK_EX|LOCK_NB)`、
+/// Windows = `share_mode(0)` 獨占開檔;**持有的 File 留到 process 死才釋放**(crash-safe,核心自動放鎖,
+/// 不留 stale lockfile)。**lockfile 永不刪**(刪了換 inode 會讓兩 starter 各鎖各的 → 雙開爆 VRAM)。
+/// 回傳 held File;Err = 別人持鎖(我們不是 owner,別 spawn)。
+fn acquire_lock() -> Result<std::fs::File, String> {
     let path = whisper_discovery::lock_path();
     if let Some(p) = path.parent() {
         let _ = std::fs::create_dir_all(p);
     }
-    let try_create = |path: &std::path::Path| -> std::io::Result<()> {
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
-        write!(f, "{}", std::process::id())
+
+    #[cfg(windows)]
+    let file = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .share_mode(0) // 獨占:別的 starter 同樣 share_mode(0) 開會失敗 = 鎖
+            .open(&path)
+            .map_err(|_| "another mori-whisper-serve holds the lock (windows exclusive)".to_string())?
     };
-    match try_create(&path) {
-        Ok(()) => Ok(path),
-        Err(_) => {
-            let stale = std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|s| s.trim().parse::<u32>().ok())
-                .map(|pid| !whisper_discovery::pid_alive(pid))
-                .unwrap_or(true);
-            if stale {
-                let _ = std::fs::remove_file(&path);
-                try_create(&path).map(|_| path).map_err(|e| format!("steal stale lock: {e}"))
-            } else {
-                Err("another mori-whisper-serve holds the lock (alive)".into())
-            }
+    #[cfg(not(windows))]
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .map_err(|e| format!("open lock: {e}"))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if rc != 0 {
+            return Err("another mori-whisper-serve holds the flock".into());
         }
     }
+
+    // pid 寫進去純診斷(鎖本身靠 flock / share_mode,不靠檔案內容)。&File 實作 Write。
+    let _ = (&file).write_all(std::process::id().to_string().as_bytes());
+    Ok(file)
 }
 
 /// 等 `GET base/` 回 200(模型載完的 ready 訊號)。child 中途自己掛了(如 GPU OOM、埠被搶)
@@ -222,7 +239,7 @@ fn do_stop() {
         }
     }
     whisper_discovery::remove_descriptor();
-    let _ = std::fs::remove_file(whisper_discovery::lock_path());
+    // 不刪 lockfile:被殺的 supervisor 行程死亡時 flock/handle 自動釋放,lockfile 留著當下次的鎖對象。
 }
 
 fn kill_pid(pid: u32) {
@@ -236,11 +253,12 @@ fn kill_pid(pid: u32) {
     }
 }
 
-fn cleanup(child: &mut Child, lock: &std::path::Path) {
+/// 收尾:殺 child + 刪 descriptor。**不刪 lockfile** —— flock/獨占 handle 在本 process 結束時
+/// (held File drop / 行程死)自動釋放;lockfile 留著當下次 flock 的對象。
+fn cleanup(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
     whisper_discovery::remove_descriptor();
-    let _ = std::fs::remove_file(lock);
 }
 
 const HELP: &str = "mori-whisper-serve — 共享 whisper-server supervisor(idle 自關)
@@ -273,26 +291,26 @@ fn main() {
         return;
     }
 
-    let lock = match acquire_lock() {
-        Ok(p) => p,
+    // 持到 main 結束才釋放(flock / 獨占 handle)。搶不到 = 別人是 owner → 我們不 spawn,安靜退出
+    // (exit 0:非錯誤;recorder 端會 adopt 既有 server 或 fallback cli)。**只有 owner 才往下 spawn+寫 descriptor**。
+    let _lock = match acquire_lock() {
+        Ok(f) => f,
         Err(e) => {
-            eprintln!("[whisper-serve] {e}");
-            std::process::exit(1);
+            eprintln!("[whisper-serve] not the owner ({e}); another instance is starting/running — exiting");
+            std::process::exit(0);
         }
     };
 
     let port = args.port.or_else(free_port).unwrap_or(0);
     if port == 0 {
         eprintln!("[whisper-serve] no free port");
-        let _ = std::fs::remove_file(&lock);
-        std::process::exit(1);
+        std::process::exit(1); // _lock drop → flock 釋放
     }
 
     let mut child = match spawn_server(&args, port) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[whisper-serve] {e}");
-            let _ = std::fs::remove_file(&lock);
             std::process::exit(1);
         }
     };
@@ -308,7 +326,7 @@ fn main() {
     let base_url = format!("http://{}:{}", args.host, port);
     if !wait_ready(&mut child, &base_url, Duration::from_secs(READY_TIMEOUT_SECS)) {
         eprintln!("[whisper-serve] server not ready within {READY_TIMEOUT_SECS}s; aborting");
-        cleanup(&mut child, &lock);
+        cleanup(&mut child);
         std::process::exit(1);
     }
 
@@ -318,12 +336,13 @@ fn main() {
         port,
         model: args.model.clone(),
         pid: child.id(),
-        started_at: chrono::Utc::now().to_rfc3339(),
+        // RFC3339 UTC 尾綴 Z(契約 §1/§8):owner 推 staleness 才不會 mis-parse offset。
+        started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         inference_path: "/inference".to_string(),
     };
     if let Err(e) = whisper_discovery::write_descriptor(&desc) {
         eprintln!("[whisper-serve] write descriptor: {e}");
-        cleanup(&mut child, &lock);
+        cleanup(&mut child);
         std::process::exit(1);
     }
     eprintln!(
@@ -352,7 +371,7 @@ fn main() {
         }
     }
 
-    cleanup(&mut child, &lock);
+    cleanup(&mut child);
     eprintln!("[whisper-serve] stopped, cleaned up descriptor + lock");
 }
 

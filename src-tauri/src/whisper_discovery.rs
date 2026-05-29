@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// 本實作支援到的契約版本上限(§6 / §8)。讀到 `contract_version` 比這大的 descriptor
+/// MUST 視為 UNUSABLE(當作沒有 server,fall through 到 spawn / cli),**不可當舊版硬吃**。
+pub const SUPPORTED_CONTRACT_VERSION: u32 = 1;
+
 fn default_contract_version() -> u32 { 1 }
 fn default_inference_path() -> String { "/inference".to_string() }
 
@@ -49,10 +53,24 @@ pub fn lock_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("whisper-server.lock"))
 }
 
-/// 讀 descriptor。缺檔 / 壞檔 → None(視為無 server)。
+/// 解析 descriptor 字串 + 版本天花板(§8 HIGH)。壞 json / 太新版本 → None。
+/// 抽成純函式好單測;read_descriptor 與測試共用同一條判斷。
+fn parse_descriptor_str(s: &str) -> Option<WhisperServerDescriptor> {
+    let desc: WhisperServerDescriptor = serde_json::from_str(s).ok()?;
+    if desc.contract_version > SUPPORTED_CONTRACT_VERSION {
+        eprintln!(
+            "[whisper] descriptor contract_version {} > supported {} — treating as unusable",
+            desc.contract_version, SUPPORTED_CONTRACT_VERSION
+        );
+        return None;
+    }
+    Some(desc)
+}
+
+/// 讀 descriptor。缺檔 / 壞檔 / 版本太新 → None(視為無 server)。
 pub fn read_descriptor() -> Option<WhisperServerDescriptor> {
     let s = std::fs::read_to_string(descriptor_path()).ok()?;
-    serde_json::from_str(&s).ok()
+    parse_descriptor_str(&s)
 }
 
 /// 原子寫 descriptor:先寫 `.tmp` 再 rename(§1,避免讀到寫一半)。
@@ -130,5 +148,21 @@ mod tests {
         let json = r#"{"host":"h","port":1,"model":"small","pid":1,"started_at":"t","inference_path":"/inference","future_field":42}"#;
         let d: WhisperServerDescriptor = serde_json::from_str(json).unwrap();
         assert_eq!(d.host, "h");
+    }
+
+    #[test]
+    fn contract_version_ceiling_rejects_newer_descriptor() {
+        // v1 / 缺欄(預設 1)→ 收;比支援上限新(v2)→ 視為 unusable(None),不可當舊版吃(§8 HIGH)。
+        assert!(parse_descriptor_str(
+            r#"{"contract_version":1,"host":"127.0.0.1","port":1,"model":"small","pid":1,"started_at":"2026-05-29T00:00:00Z"}"#
+        ).is_some());
+        assert!(parse_descriptor_str(
+            r#"{"host":"127.0.0.1","port":1,"model":"small","pid":1,"started_at":"2026-05-29T00:00:00Z"}"#
+        ).is_some());
+        assert!(parse_descriptor_str(
+            r#"{"contract_version":2,"host":"127.0.0.1","port":1,"model":"small","pid":1,"started_at":"2026-05-29T00:00:00Z"}"#
+        ).is_none());
+        // 壞 json → None
+        assert!(parse_descriptor_str("{ not json").is_none());
     }
 }
