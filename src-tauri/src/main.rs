@@ -630,6 +630,59 @@ fn set_segment_speaker(session_id: String, track: String, seg_id: String, speake
     transcribe::write_segments_jsonl(&path, &relabeled)
 }
 
+// ── C4: 聲紋 commands ─────────────────────────────────────────────────────────
+
+/// 聲紋嵌入模型(= 分人那顆 emb 模型)是否已安裝。
+#[tauri::command]
+fn voiceprint_models_present() -> bool { crate::diarize::emb_model_path().exists() }
+
+/// 開始聲紋錄音(錄麥克風到 temp WAV,不轉錄)。
+#[tauri::command]
+fn enroll_voice_start() -> Result<(), String> { crate::recorder::instance().enroll_record_start() }
+
+/// 停止聲紋錄音 → 嵌入 temp WAV → 累加進 registry 的該 name(沒有就新建)→ 清 temp。
+#[tauri::command]
+fn enroll_voice_finish(name: String) -> Result<(), String> {
+    let wav = crate::recorder::instance().enroll_record_stop()?;
+    let emb = crate::voiceprint::embed_wav_file(&wav)?;
+    let _ = std::fs::remove_file(&wav);
+    let mut reg = crate::voiceprint::load_or_new();
+    match reg.people.iter_mut().find(|p| p.name == name) {
+        Some(p) => p.samples.push(emb),
+        None => reg.people.push(crate::voiceprint::Person {
+            id: format!("p{}", reg.people.len() + 1), name, samples: vec![emb],
+        }),
+    }
+    crate::voiceprint::write_registry(&reg)
+}
+
+#[derive(serde::Serialize)]
+struct VoiceprintInfo { id: String, name: String, sample_count: usize }
+
+/// 列出所有已註冊聲紋(id + 名字 + 樣本數,不回傳 embedding 數據)。
+#[tauri::command]
+fn list_voiceprints() -> Vec<VoiceprintInfo> {
+    crate::voiceprint::load_or_new().people.into_iter()
+        .map(|p| VoiceprintInfo { id: p.id, name: p.name, sample_count: p.samples.len() })
+        .collect()
+}
+
+/// 刪除指定 id 的聲紋。
+#[tauri::command]
+fn remove_voiceprint(id: String) -> Result<(), String> {
+    let mut reg = crate::voiceprint::load_or_new();
+    reg.people.retain(|p| p.id != id);
+    crate::voiceprint::write_registry(&reg)
+}
+
+/// 改名指定 id 的聲紋。
+#[tauri::command]
+fn rename_voiceprint(id: String, name: String) -> Result<(), String> {
+    let mut reg = crate::voiceprint::load_or_new();
+    if let Some(p) = reg.people.iter_mut().find(|p| p.id == id) { p.name = name; }
+    crate::voiceprint::write_registry(&reg)
+}
+
 /// 對一場 session 跑分人後處理:讀 meeting-info 人員數 → num_clusters → 每軌 diarize_wav
 /// → assign_speakers → 標回兩軌 jsonl + 寫 speakers.json。
 /// 耗時(實時因子約 0.08x CPU)→ spawn_blocking 不卡 UI(同 recorder_stop 模式)。
@@ -741,6 +794,13 @@ fn main() {
             // C3: diarization correction commands
             merge_speakers,
             set_segment_speaker,
+            // C4: voiceprint commands
+            voiceprint_models_present,
+            enroll_voice_start,
+            enroll_voice_finish,
+            list_voiceprints,
+            remove_voiceprint,
+            rename_voiceprint,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
