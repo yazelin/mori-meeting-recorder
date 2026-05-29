@@ -642,8 +642,8 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 /* 浮動字幕視窗(caption-sys / caption-mic)— frameless,transparent window 自畫面板 */
 .cap-win {
   height: 100vh; display: flex; flex-direction: column;
-  background: rgba(18, 20, 26, 0.92);
-  border: 0.5px solid var(--border); border-radius: 12px; overflow: hidden;
+  background: rgb(18, 20, 26);
+  border: 0.5px solid var(--border); overflow: hidden;
 }
 .cap-win-bar {
   display: flex; align-items: center; gap: 6px; padding: 6px 10px;
