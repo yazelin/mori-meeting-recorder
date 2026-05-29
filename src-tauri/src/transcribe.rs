@@ -142,10 +142,115 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &st
 }
 
 /// 依 `config.transcribe_engine` 選引擎,回「原始」segments(未做 noise filter / 繁體轉換)。
-/// auto = 共享 whisper-server(可用時)否則 cli;server = server(不可用 fallback cli);cli = 一律 cli。
-/// (共享 server 路徑於後續 PR 依 whisper-server-contract 接入;目前一律走 cli。)
+/// auto / server = 有「驗活過」的共享 whisper-server 就用、失敗 fallback cli;cli = 一律 cli。
+/// **standalone-first 硬規矩**:即使選 server,沒 server 時仍 fallback cli,單機照跑(契約 §3.3)。
+/// (auto 與 server 目前行為一致;兩者差別「server 模式可由本程式主動 start server」屬後續 starter PR。)
 fn transcribe_raw(wav: &Path, session_id: &str, kind: SourceKind, language: &str) -> Vec<Segment> {
+    let engine = crate::config::read_config().transcribe_engine;
+    if engine == "server" || engine == "auto" {
+        // reachable_server() 內含驗活(pid + GET / 200);pid 死的 stale descriptor 會即時回 None,不會卡。
+        if let Some(desc) = crate::whisper_discovery::reachable_server() {
+            match run_whisper_server(&desc, wav, session_id, kind, language) {
+                Ok(segs) => return segs,
+                Err(e) => eprintln!("[whisper] server path failed ({e}); falling back to cli"),
+            }
+        }
+    }
     run_whisper_cli(wav, session_id, kind, language)
+}
+
+/// 16kHz mono WAV 的長度(ms)。共享 server 回 plain `{text}`(無 per-word offset),
+/// 所以整個 clip 視為「一段」,end_ms 用這個算;讀不到回 0。
+fn wav_duration_ms(wav: &Path) -> u64 {
+    match hound::WavReader::open(wav) {
+        Ok(r) => {
+            let spec = r.spec();
+            let frames = r.len() as u64 / (spec.channels.max(1) as u64);
+            frames * 1000 / (spec.sample_rate.max(1) as u64)
+        }
+        Err(_) => 0,
+    }
+}
+
+/// 把共享 whisper-server 的 baseline plain-json 回應(`{"text": "..."}`,契約 §2)轉成
+/// 「整個 clip 一段」的 raw Segment(start=0、end=clip 長度;之後由 caller 平移成絕對時間)。
+/// text 去頭尾空白後為空 → None。noise filter / 繁體轉換一律在 run_whisper 那層做,這裡不碰。
+fn parse_server_json(
+    json: &str,
+    clip_duration_ms: u64,
+    session_id: &str,
+    kind: SourceKind,
+) -> Option<Segment> {
+    #[derive(Deserialize)]
+    struct Resp {
+        text: String,
+    }
+    let resp: Resp = serde_json::from_str(json).ok()?;
+    let text = resp.text.trim().to_string();
+    if text.is_empty() {
+        return None;
+    }
+    let visibility = kind.default_visibility();
+    Some(Segment {
+        id: "seg_001".to_string(),
+        session_id: session_id.to_string(),
+        track: kind.track_name().to_string(),
+        source_kind: kind.as_str().to_string(),
+        visibility: match visibility {
+            Visibility::Public => "public".to_string(),
+            Visibility::Internal => "internal".to_string(),
+        },
+        start_ms: 0,
+        end_ms: clip_duration_ms,
+        text,
+        is_final: true,
+        confidence: None,
+    })
+}
+
+/// POST 一個 WAV clip 到共享 whisper-server 的 `/inference`(multipart/form-data,
+/// 契約 §2 baseline:`response_format=json` → plain `{text}`)→ raw segments。
+/// 任何失敗(連線 / 非 200 / parse)回 Err,讓 transcribe_raw fallback cli(standalone-first)。
+/// multipart 手刻(ureq 無 multipart):固定長 boundary,短 audio clip 撞 boundary 機率可忽略。
+fn run_whisper_server(
+    desc: &crate::whisper_discovery::WhisperServerDescriptor,
+    wav: &Path,
+    session_id: &str,
+    kind: SourceKind,
+    language: &str,
+) -> Result<Vec<Segment>, String> {
+    let wav_bytes = std::fs::read(wav).map_err(|e| format!("read wav: {e}"))?;
+    let duration_ms = wav_duration_ms(wav);
+    let boundary = "----morimeetingrecorderFormBoundary7MA4YWxkTrZu0gW";
+    let mut body: Vec<u8> = Vec::with_capacity(wav_bytes.len() + 512);
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"clip.wav\"\r\nContent-Type: audio/wav\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(&wav_bytes);
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(
+        format!("--{boundary}\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\n{language}\r\n").as_bytes(),
+    );
+    body.extend_from_slice(
+        format!("--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\njson\r\n").as_bytes(),
+    );
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+
+    let resp = ureq::post(&desc.inference_url())
+        .set("Content-Type", &format!("multipart/form-data; boundary={boundary}"))
+        .timeout(std::time::Duration::from_secs(120))
+        .send_bytes(&body)
+        .map_err(|e| format!("POST {}: {e}", desc.inference_url()))?;
+    if resp.status() != 200 {
+        return Err(format!("status {}", resp.status()));
+    }
+    let json = resp.into_string().map_err(|e| format!("read resp: {e}"))?;
+    Ok(parse_server_json(&json, duration_ms, session_id, kind)
+        .map(|s| vec![s])
+        .unwrap_or_default())
 }
 
 /// whisper-cli per-call:spawn whisper-cli + parse `--output-json-full` sidecar → 原始 segments。
@@ -434,6 +539,92 @@ mod tests {
         assert_eq!(to_traditional("软件"), "軟體"); // 台灣詞彙(非僅字形)
         // 已是繁體 → 不變
         assert_eq!(to_traditional("會議記錄"), "會議記錄");
+    }
+
+    #[test]
+    fn parse_server_json_makes_one_segment_spanning_the_clip() {
+        // baseline plain {text}:整個 clip 一段,start=0、end=clip 長度。whisper 常前綴空白 → trim。
+        let seg = parse_server_json(r#"{"text":" 我們下週三前要交版本。"}"#, 4200, "m1", SourceKind::MeetingSystem).unwrap();
+        assert_eq!(seg.id, "seg_001");
+        assert_eq!(seg.session_id, "m1");
+        assert_eq!(seg.track, "system");
+        assert_eq!(seg.source_kind, "meeting_system");
+        assert_eq!(seg.visibility, "public");
+        assert_eq!(seg.start_ms, 0);
+        assert_eq!(seg.end_ms, 4200);
+        assert_eq!(seg.text, "我們下週三前要交版本。"); // 前綴空白被 trim
+        assert!(seg.is_final);
+    }
+
+    #[test]
+    fn parse_server_json_mic_internal_visibility() {
+        let seg = parse_server_json(r#"{"text":"私心話"}"#, 1000, "x", SourceKind::MicInternal).unwrap();
+        assert_eq!(seg.visibility, "internal");
+        assert_eq!(seg.track, "mic-internal");
+    }
+
+    #[test]
+    fn parse_server_json_empty_text_is_none() {
+        // 空 / 純空白 → None(不產段);noise filter 在上層,parser 只擋全空。
+        assert!(parse_server_json(r#"{"text":""}"#, 1000, "x", SourceKind::MeetingSystem).is_none());
+        assert!(parse_server_json(r#"{"text":"   "}"#, 1000, "x", SourceKind::MeetingSystem).is_none());
+    }
+
+    #[test]
+    fn parse_server_json_keeps_bracketed_text_for_upstream_noise_filter() {
+        // 括號非語音標註在這層「不」過濾(交給 run_whisper 的 is_noise_segment 統一處理,兩引擎一致)。
+        let seg = parse_server_json(r#"{"text":"[Music]"}"#, 800, "x", SourceKind::MeetingSystem).unwrap();
+        assert_eq!(seg.text, "[Music]");
+    }
+
+    #[test]
+    fn parse_server_json_corrupt_is_none() {
+        assert!(parse_server_json("{ not json", 1000, "x", SourceKind::MeetingSystem).is_none());
+    }
+
+    #[test]
+    fn wav_duration_ms_matches_sample_count() {
+        // 16000 frames @ 16kHz mono = 1000ms
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("dur.wav");
+        let signal: Vec<i16> = vec![0; 16_000];
+        write_wav_16k_mono(&path, &signal).unwrap();
+        assert_eq!(wav_duration_ms(&path), 1000);
+        // 讀不到 → 0(讓 end_ms 退化成 0,不會 panic)
+        assert_eq!(wav_duration_ms(std::path::Path::new("/nonexistent.wav")), 0);
+    }
+
+    /// 真打活的 whisper-server,驗手刻 multipart 確實被 cpp-httplib 接受(200 + {text})。
+    /// 預設 `#[ignore]`(不進 verify.sh / CI)。手動跑:
+    ///   WHISPER_SERVER_PORT=38099 cargo test --release server_post_round_trip -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn server_post_round_trip() {
+        let port: u16 = std::env::var("WHISPER_SERVER_PORT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .expect("set WHISPER_SERVER_PORT to a running whisper-server");
+        let desc = crate::whisper_discovery::WhisperServerDescriptor {
+            contract_version: 1,
+            host: "127.0.0.1".into(),
+            port,
+            model: "small".into(),
+            pid: 0,
+            started_at: "test".into(),
+            inference_path: "/inference".into(),
+        };
+        // 1 秒靜音 clip:重點是驗 transport(200 + 合法 {text} json),不是轉錄品質。
+        let tmp = tempfile::TempDir::new().unwrap();
+        let wav = tmp.path().join("clip.wav");
+        write_wav_16k_mono(&wav, &vec![0i16; 16_000]).unwrap();
+        let segs = run_whisper_server(&desc, &wav, "itest", SourceKind::MeetingSystem, "zh")
+            .expect("POST /inference should round-trip 200 + json");
+        // 靜音可能回空段或 [BLANK_AUDIO];能 Ok 回傳就證明 multipart 格式被接受、json 解得開。
+        eprintln!("server_post_round_trip segs = {segs:?}");
+        for s in &segs {
+            assert_eq!(s.end_ms, 1000); // wav_duration_ms 對 1s clip
+            assert_eq!(s.source_kind, "meeting_system");
+        }
     }
 
     #[test]
