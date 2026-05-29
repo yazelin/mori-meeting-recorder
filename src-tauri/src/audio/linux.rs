@@ -101,7 +101,11 @@ fn pick_system_monitor() -> Result<String, String> {
     Err("no .monitor source — run `pactl load-module module-loopback` or check PipeWire config".into())
 }
 
-pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHandle, String> {
+pub fn open_capture(
+    source: SourceKind,
+    out_path: PathBuf,
+    vad_cfg: crate::audio::vad::VadConfig,
+) -> Result<crate::audio::CaptureResult, String> {
     let source_name = pick_source(source)?;
     let spec = Spec {
         format: Format::S16le,
@@ -143,12 +147,15 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
     let writer = Arc::new(Mutex::new(Some(TrackWriter::create(&out_path)?)));
     let signal = Arc::new(Mutex::new(SignalMeter::default()));
     let stop_flag = Arc::new(AtomicBool::new(false));
+    // VadChunker 切出的 speech 段透過此 channel 送給 transcribe worker。
+    let (speech_tx, speech_rx) = std::sync::mpsc::channel::<crate::audio::vad::SpeechSegment>();
 
     // capture loop 在 dedicated thread(simple.read 是 blocking,thread 拿 simple ownership)
     let writer_for_thread = writer.clone();
     let signal_for_thread = signal.clone();
     let stop_for_thread = stop_flag.clone();
     let writer_handle = std::thread::spawn(move || -> Result<u64, String> {
+        let mut chunker = crate::audio::vad::VadChunker::new(vad_cfg);
         let mut buf = vec![0u8; CHUNK_BYTES];
         while !stop_for_thread.load(Ordering::Relaxed) {
             match simple.read(&mut buf) {
@@ -163,13 +170,14 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
                     let now = chrono::Utc::now().timestamp_millis() as u64;
                     if let Ok(mut s) = signal_for_thread.lock() {
                         // VU smoothing — fast attack, slow release at the data layer (NOT just CSS).
-                        // 解掉「語音 inter-syllabic 50ms 停頓 → raw RMS 掉到 -70 → bar 全暗」
-                        // 的閃爍問題。30 dB/s release = 1.5 dB per 50ms tick,300ms 停頓只下降 9 dB,
-                        // bar 還明顯亮著。
                         let dt_ms = now.saturating_sub(s.last_sample_at_unix_ms).clamp(1, 500) as f32;
                         s.peak_rms_db = crate::audio::levels::smooth_db(s.peak_rms_db, rms_db_raw, 30.0, dt_ms);
                         s.peak_db = crate::audio::levels::smooth_db(s.peak_db, peak_db_raw, 30.0, dt_ms);
                         s.last_sample_at_unix_ms = now;
+                    }
+                    // VAD:用 raw rms(smooth 前的真實瞬時值)判切點;切出的段送 worker。
+                    if let Some(seg) = chunker.push(&samples, rms_db_raw) {
+                        let _ = speech_tx.send(seg);
                     }
                     // 寫 WAV
                     if let Ok(mut guard) = writer_for_thread.lock() {
@@ -184,7 +192,12 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
                 }
             }
         }
-        // stop_flag set → drop simple → finalize WAV
+        // stop_flag set → flush VadChunker 最後一段 → drop simple → finalize WAV
+        if let Some(seg) = chunker.flush() {
+            let _ = speech_tx.send(seg);
+        }
+        // speech_tx drop(離開 scope)→ worker recv() 收到 Err → worker loop 結束。
+        drop(speech_tx);
         drop(simple);
         let mut guard = writer_for_thread.lock().unwrap();
         if let Some(w) = guard.take() {
@@ -196,12 +209,15 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
         }
     });
 
-    Ok(CaptureHandle {
-        source,
-        writer_handle,
-        signal,
-        stop_flag,
-    })
+    Ok((
+        CaptureHandle {
+            source,
+            writer_handle,
+            signal,
+            stop_flag,
+        },
+        speech_rx,
+    ))
 }
 
 #[cfg(test)]

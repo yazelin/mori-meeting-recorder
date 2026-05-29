@@ -90,26 +90,34 @@ impl SignalMeter {
 }
 
 /// 開啟一個 capture stream 給指定 source,把 samples 寫進指定 WAV path。回 handle。
+/// 回 (handle, speech_rx)。speech_rx 收 VadChunker 切出的 speech 段,recorder 把它配給
+/// transcribe worker。receiver 走 tuple 而非塞進 handle,因為 Receiver 不可 clone、
+/// 要 move 出來給 worker thread。
+pub type CaptureResult = (CaptureHandle, std::sync::mpsc::Receiver<vad::SpeechSegment>);
+
 #[cfg(target_os = "linux")]
 pub fn open_capture(
     source: SourceKind,
     out_path: std::path::PathBuf,
-) -> Result<CaptureHandle, String> {
-    linux::open_capture(source, out_path)
+    vad_cfg: vad::VadConfig,
+) -> Result<CaptureResult, String> {
+    linux::open_capture(source, out_path, vad_cfg)
 }
 
 #[cfg(target_os = "windows")]
 pub fn open_capture(
     source: SourceKind,
     out_path: std::path::PathBuf,
-) -> Result<CaptureHandle, String> {
-    windows::open_capture(source, out_path)
+    vad_cfg: vad::VadConfig,
+) -> Result<CaptureResult, String> {
+    windows::open_capture(source, out_path, vad_cfg)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub fn open_capture(
     _source: SourceKind,
     _out_path: std::path::PathBuf,
-) -> Result<CaptureHandle, String> {
+    _vad_cfg: vad::VadConfig,
+) -> Result<CaptureResult, String> {
     Err("only linux + windows supported in MVP".into())
 }

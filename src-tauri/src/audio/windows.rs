@@ -25,7 +25,11 @@ pub fn pick_device(source: SourceKind) -> Result<Device, String> {
     }
 }
 
-pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHandle, String> {
+pub fn open_capture(
+    source: SourceKind,
+    out_path: PathBuf,
+    vad_cfg: crate::audio::vad::VadConfig,
+) -> Result<crate::audio::CaptureResult, String> {
     let device = pick_device(source)?;
     let default_config = match source {
         SourceKind::MicInternal => device
@@ -48,18 +52,23 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
     let writer = Arc::new(Mutex::new(Some(TrackWriter::create(&out_path)?)));
     let signal = Arc::new(Mutex::new(SignalMeter::default()));
     let stop_flag = Arc::new(AtomicBool::new(false));
+    // VadChunker 共享(兩個 sample-format closure 都可能捕獲);切出的段送 channel。
+    let chunker = Arc::new(Mutex::new(crate::audio::vad::VadChunker::new(vad_cfg)));
+    let (speech_tx, speech_rx) = std::sync::mpsc::channel::<crate::audio::vad::SpeechSegment>();
 
     let resample_ratio = in_rate as f64 / TARGET_RATE as f64;
     let err_fn = |e| eprintln!("audio stream error: {e}");
 
     let writer_cb = writer.clone();
     let signal_cb = signal.clone();
+    let chunker_cb = chunker.clone();
+    let tx_cb = speech_tx.clone();
 
     let stream = match sample_format {
         SampleFormat::F32 => device.build_input_stream(
             &config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                handle_chunk_f32(data, in_channels, resample_ratio, &writer_cb, &signal_cb);
+                handle_chunk_f32(data, in_channels, resample_ratio, &writer_cb, &signal_cb, &chunker_cb, &tx_cb);
             },
             err_fn,
             None,
@@ -67,11 +76,13 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
         SampleFormat::I16 => {
             let writer_cb_i = writer_cb.clone();
             let signal_cb_i = signal_cb.clone();
+            let chunker_cb_i = chunker_cb.clone();
+            let tx_cb_i = tx_cb.clone();
             device.build_input_stream(
                 &config,
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                     let f: Vec<f32> = data.iter().map(|&x| x as f32 / 32_768.0).collect();
-                    handle_chunk_f32(&f, in_channels, resample_ratio, &writer_cb_i, &signal_cb_i);
+                    handle_chunk_f32(&f, in_channels, resample_ratio, &writer_cb_i, &signal_cb_i, &chunker_cb_i, &tx_cb_i);
                 },
                 err_fn,
                 None,
@@ -85,11 +96,19 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
 
     let stop_for_thread = stop_flag.clone();
     let writer_for_finalize = writer.clone();
+    let chunker_for_flush = chunker.clone();
     let writer_thread = std::thread::spawn(move || {
         while !stop_for_thread.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         drop(stream);
+        // flush VadChunker 最後一段,再 drop tx → worker recv Err → 結束。
+        if let Ok(mut c) = chunker_for_flush.lock() {
+            if let Some(seg) = c.flush() {
+                let _ = speech_tx.send(seg);
+            }
+        }
+        drop(speech_tx);
         let mut guard = writer_for_finalize.lock().unwrap();
         if let Some(w) = guard.take() {
             let n = w.samples_written();
@@ -100,20 +119,26 @@ pub fn open_capture(source: SourceKind, out_path: PathBuf) -> Result<CaptureHand
         }
     });
 
-    Ok(CaptureHandle {
-        source,
-        writer_handle: writer_thread,
-        signal,
-        stop_flag,
-    })
+    Ok((
+        CaptureHandle {
+            source,
+            writer_handle: writer_thread,
+            signal,
+            stop_flag,
+        },
+        speech_rx,
+    ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_chunk_f32(
     samples: &[f32],
     in_channels: u16,
     resample_ratio: f64,
     writer: &Arc<Mutex<Option<TrackWriter>>>,
     signal: &Arc<Mutex<SignalMeter>>,
+    chunker: &Arc<Mutex<crate::audio::vad::VadChunker>>,
+    speech_tx: &std::sync::mpsc::Sender<crate::audio::vad::SpeechSegment>,
 ) {
     let mono: Vec<f32> = if in_channels == 1 {
         samples.to_vec()
@@ -142,6 +167,12 @@ fn handle_chunk_f32(
             s.peak_rms_db = crate::audio::levels::smooth_db(s.peak_rms_db, rms_db_raw, 30.0, dt_ms);
             s.peak_db = crate::audio::levels::smooth_db(s.peak_db, peak_db_raw, 30.0, dt_ms);
             s.last_sample_at_unix_ms = now;
+        }
+        // VAD:用 raw rms 判切點(對齊 linux.rs);切出的段送 worker。
+        if let Ok(mut c) = chunker.lock() {
+            if let Some(seg) = c.push(&out_i16, rms_db_raw) {
+                let _ = speech_tx.send(seg);
+            }
         }
     }
 
