@@ -47,6 +47,10 @@
   },
   "settings": {
     "title": "轉錄參數",
+    "model": "Whisper 模型",
+    "model_small": "small(快)",
+    "model_turbo": "large-v3-turbo(準,較慢)",
+    "model_hint": "small = 快、準度普通。large-v3-turbo = 準度好很多,但 CPU 上較慢(剩 N 段會積較高)。要先把 ggml-<模型>.bin 下載到 ~/.mori/models/(見 Deps 分頁)。",
     "silence_split": "靜音切點門檻",
     "silence_split_hint": "一句話講完的停頓多久算切點。調小=字幕更即時但更碎。",
     "silence_threshold": "靜音音量門檻",
