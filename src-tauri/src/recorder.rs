@@ -24,6 +24,8 @@ pub struct ActiveSession {
     pub started_at: DateTime<Local>,
     pub handles: Vec<CaptureHandle>,
     pub workers: Vec<crate::transcribe::TranscribeWorker>,
+    /// 開錄當時的 whisper 模型(config.model),停止彙整時記進 timeline.json。
+    pub transcribe_model: String,
 }
 
 /// 語音輸入(主題/參與者快速口述)用的獨立麥克風 capture — 跟會議錄音無關,只寫 temp WAV。
@@ -129,6 +131,7 @@ impl Recorder {
         let cfg = crate::config::read_config();
         let language = cfg.language.clone();
         let traditional = cfg.traditional;
+        let transcribe_model = cfg.model.clone(); // 記下這場用的模型,停止時寫進 timeline.json
         // engine=cli → 完全不碰 server。否則:若沒有可用共享 server,detached 拉起 supervisor(非阻塞),
         // worker 會在 warmup 期間每段重試 reachable_server() 直到接上(見 spawn_transcribe_worker)。
         let try_server = cfg.transcribe_engine != "cli";
@@ -199,6 +202,7 @@ impl Recorder {
             started_at: now,
             handles,
             workers,
+            transcribe_model,
         });
         *self.state.lock().map_err(|e| e.to_string())? = State::Recording;
 
@@ -280,6 +284,7 @@ impl Recorder {
     fn finalize_session(&self, session: ActiveSession) -> Result<(), String> {
         let store = session.store;
         let started_at = session.started_at;
+        let transcribe_model = session.transcribe_model;
         let session_id = store.session_id.clone();
 
         // 1. capture thread flush VadChunker → 送最後段 → drop Sender。
@@ -328,6 +333,9 @@ impl Recorder {
                 public: "meeting.public.md".into(),
                 internal: "meeting.internal.md".into(),
             },
+            transcribe_model,                 // 這場用的 whisper 模型
+            diarize_seg_model: None,          // 還沒分人(會後跑 diarize_session 才填)
+            diarize_emb_model: None,
         };
         let (pub_md, int_md, timeline) = export(&all_segs, &meta, &[])?;
         std::fs::write(store.public_md_path(), pub_md).map_err(|e| format!("write public.md: {e}"))?;
