@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Mori Meeting Recorder default capability — covers JS-side window control (drag, size, decorations) and custom command handlers. Tauri 2 denies window APIs by default; the imperative drag fix in PR #4 needed this file but it was missing — see PR description for context.",
-  "windows": ["main"],
+  "windows": ["main", "caption-sys", "caption-mic"],
   "permissions": [
     "core:default",
     "core:window:default",
