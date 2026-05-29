@@ -88,10 +88,29 @@ pub fn diarize_session_inner(
 
     write_labeled_tracks(session_root, &labeled, &speakers)?;
 
+    // 記下這場分人用了哪兩個模型(best-effort,失敗不影響分人結果)。
+    stamp_diar_models(session_root);
+
     Ok(DiarizeSummary {
         num_speakers: speakers.len(),
         num_segments: labeled.len(),
     })
+}
+
+/// 把分人用的 segmentation / embedding 模型名寫進 timeline.json 的 SessionMeta(best-effort)。
+/// 為了可重現/debug:將來換模型,回頭看舊紀錄才知道哪場用哪個分的。讀不到/壞檔就略過。
+fn stamp_diar_models(session_root: &std::path::Path) {
+    fn model_name(p: std::path::PathBuf) -> Option<String> {
+        p.file_stem().map(|s| s.to_string_lossy().into_owned())
+    }
+    let path = session_root.join("timeline.json");
+    let Ok(s) = std::fs::read_to_string(&path) else { return };
+    let Ok(mut meta) = serde_json::from_str::<crate::exporter::SessionMeta>(&s) else { return };
+    meta.diarize_seg_model = model_name(crate::diarize::seg_model_path());
+    meta.diarize_emb_model = model_name(crate::diarize::emb_model_path());
+    if let Ok(body) = serde_json::to_string_pretty(&meta) {
+        let _ = std::fs::write(&path, body);
+    }
 }
 
 /// 讀一場 session 兩軌 jsonl 合併(依 start_ms 排序),給工作區顯示。
@@ -254,6 +273,9 @@ mod tests {
                 public: "meeting.public.md".into(),
                 internal: "meeting.internal.md".into(),
             },
+            transcribe_model: "small".into(),
+            diarize_seg_model: None,
+            diarize_emb_model: None,
         };
         std::fs::write(
             root.join("timeline.json"),

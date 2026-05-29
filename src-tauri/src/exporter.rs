@@ -14,6 +14,15 @@ pub struct SessionMeta {
     pub duration_secs: u64,
     pub tracks: Vec<TrackMeta>,
     pub exports: Exports,
+    /// 這場當時用的 whisper 轉錄模型(stop 時記,e.g. "small" / "large-v3-turbo")。
+    /// 記下來是為了可重現/debug:將來換更大模型,回頭看舊紀錄才知道哪場用哪個跑的。
+    #[serde(default)]
+    pub transcribe_model: String,
+    /// 分人用的 segmentation / embedding 模型名(跑分人時記;沒分過 = None)。
+    #[serde(default)]
+    pub diarize_seg_model: Option<String>,
+    #[serde(default)]
+    pub diarize_emb_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,7 +138,27 @@ mod tests {
                 public: "meeting.public.md".into(),
                 internal: "meeting.internal.md".into(),
             },
+            transcribe_model: "small".into(),
+            diarize_seg_model: None,
+            diarize_emb_model: None,
         }
+    }
+
+    #[test]
+    fn session_meta_model_fields_round_trip_and_default() {
+        // 新欄位 serialize→deserialize 保留
+        let mut m = meta("x");
+        m.transcribe_model = "large-v3-turbo".into();
+        m.diarize_seg_model = Some("pyannote-segmentation-3-0".into());
+        let s = serde_json::to_string(&m).unwrap();
+        let back: SessionMeta = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.transcribe_model, "large-v3-turbo");
+        assert_eq!(back.diarize_seg_model.as_deref(), Some("pyannote-segmentation-3-0"));
+        // 舊 timeline.json(沒這些欄位)→ serde default(空字串 / None),不報錯
+        let old = r#"{"schema_version":1,"session_id":"x","started_at":"t","stopped_at":"t","duration_secs":1,"tracks":[],"exports":{"public":"","internal":""}}"#;
+        let parsed: SessionMeta = serde_json::from_str(old).unwrap();
+        assert_eq!(parsed.transcribe_model, "");
+        assert_eq!(parsed.diarize_seg_model, None);
     }
 
     #[test]
