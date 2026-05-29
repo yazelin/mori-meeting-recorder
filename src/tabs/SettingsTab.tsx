@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import SettingField from "../components/SettingField";
+import Select from "../components/Select";
 
 interface RecorderConfig {
   silence_split_ms: number;
@@ -50,16 +51,16 @@ export default function SettingsTab() {
       <div className="setting-field">
         <div className="setting-field-row">
           <span className="setting-field-label">{t("settings.language")}</span>
-          <select
-            className="setting-field-select"
+          <Select
             value={cfg.language}
-            onChange={(e) => setCfg({ ...cfg, language: e.target.value })}
-          >
-            <option value="auto">{t("settings.lang_auto")}</option>
-            <option value="zh">{t("settings.lang_zh")}</option>
-            <option value="en">{t("settings.lang_en")}</option>
-            <option value="ja">{t("settings.lang_ja")}</option>
-          </select>
+            onChange={(v) => setCfg({ ...cfg, language: v })}
+            options={[
+              { value: "auto", label: t("settings.lang_auto") },
+              { value: "zh", label: t("settings.lang_zh") },
+              { value: "en", label: t("settings.lang_en") },
+              { value: "ja", label: t("settings.lang_ja") },
+            ]}
+          />
         </div>
         <div className="setting-field-hint">{t("settings.language_hint")}</div>
       </div>
