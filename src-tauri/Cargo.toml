@@ -33,6 +33,8 @@ ureq = { version = "2", default-features = false }
 [target.'cfg(target_os = "linux")'.dependencies]
 libpulse-binding = "2"
 libpulse-simple-binding = "2"
+# whisper-serve supervisor 用 PR_SET_PDEATHSIG(supervisor 被殺時連帶收掉 whisper-server child)
+libc = "0.2"
 
 # Windows:cpal WASAPI loopback(對齊 mori-desktop)
 [target.'cfg(target_os = "windows")'.dependencies]
