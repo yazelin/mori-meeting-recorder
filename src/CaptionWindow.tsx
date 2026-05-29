@@ -53,6 +53,18 @@ export default function CaptionWindow({ track }: { track: "sys" | "mic" }) {
     return () => { unlisten?.(); };
   }, [track]);
 
+  // 新錄音開始 → 立刻清空(不等第一段),才不會跟上一場字幕混在一起。
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    (async () => {
+      unlisten = await listen("live-reset", () => {
+        sessionRef.current = null;
+        setLines([]);
+      });
+    })();
+    return () => { unlisten?.(); };
+  }, []);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [lines.length]);
