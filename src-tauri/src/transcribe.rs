@@ -125,10 +125,11 @@ pub fn to_traditional(text: &str) -> Option<String> {
     }
 }
 
-/// 判斷一段是否為「非語音雜訊 / whisper 幻覺」,該丟。
-/// (1) 整段被括號 / ♪ 包住 = whisper 的 non-speech 標註(`[keyboard clacking]` / `（音樂）`)。
-/// (2) 已知靜音幻覺片語(whisper 在無語音段常吐 YouTube 結尾語;簡繁都列,需整段精確相符才丟,
-///     避免誤殺真的講「謝謝大家,辛苦了」)。
+/// 只丟「whisper 自己明確標成非語音」的段:整段被括號 / ♪ 包住(SDH 風格的
+/// `[keyboard clacking]` / `[Music]` / `[typing]` / `（音樂）`)或空白。
+///
+/// **刻意不用任何「謝謝大家」式片語黑名單** —— 那些是正常講話內容,用片語過濾會誤殺真的講話。
+/// 這裡只靠「whisper 把非語音用括號包起來」這個結構特徵(不是猜講話內容),所以絕不會吃掉真句子。
 fn is_noise_segment(text: &str) -> bool {
     let t = text.trim();
     if t.is_empty() {
@@ -136,21 +137,10 @@ fn is_noise_segment(text: &str) -> bool {
     }
     let first = t.chars().next().unwrap();
     let last = t.chars().last().unwrap();
-    if matches!(
+    matches!(
         (first, last),
         ('[', ']') | ('(', ')') | ('（', '）') | ('【', '】') | ('*', '*') | ('♪', '♪')
-    ) {
-        return true;
-    }
-    // 去掉尾端標點再跟黑名單精確比對
-    let core = t.trim_end_matches(|c: char| "。.!！?？、,, ".contains(c));
-    const HALLUCINATIONS: &[&str] = &[
-        "謝謝大家", "谢谢大家", "謝謝觀看", "谢谢观看", "謝謝收看", "谢谢收看",
-        "感謝觀看", "感谢观看", "請訂閱", "请订阅", "請按讚訂閱", "请点赞订阅",
-        "請不吝點贊訂閱", "请不吝点赞订阅", "字幕由", "字幕志願者", "字幕志愿者",
-        "我們下次再見", "我们下次再见", "下次再見", "下次再见",
-    ];
-    HALLUCINATIONS.iter().any(|h| core == *h)
+    )
 }
 
 /// 跑 whisper-cli 對單一 WAV 檔,回 Segments。檔案不存在或 binary 缺則跳過(回空)。
@@ -364,18 +354,17 @@ mod tests {
     }
 
     #[test]
-    fn noise_filter_drops_brackets_and_hallucinations_keeps_real_speech() {
-        // 非語音標註 / ♪ / 空白 → 丟
+    fn noise_filter_drops_only_bracketed_nonspeech_never_real_speech() {
+        // whisper 用括號 / ♪ 包的非語音標註 + 空白 → 丟
         assert!(is_noise_segment("[keyboard clacking]"));
+        assert!(is_noise_segment("[Music]"));
+        assert!(is_noise_segment("[typing]"));
         assert!(is_noise_segment("（音樂）"));
-        assert!(is_noise_segment("♪ music ♪"));
+        assert!(is_noise_segment("♪ ♪"));
         assert!(is_noise_segment("   "));
-        // 已知幻覺片語(含尾標點)→ 丟
-        assert!(is_noise_segment("謝謝大家"));
-        assert!(is_noise_segment("謝謝大家。"));
-        assert!(is_noise_segment("谢谢观看"));
-        // 真講話 → 留(就算含「謝謝大家」也不該整段誤殺)
-        assert!(!is_noise_segment("謝謝大家,辛苦了今天先到這"));
+        // 任何真講話內容都不丟 —— 「謝謝大家」這種也可能是真的在講,不可用片語過濾誤殺
+        assert!(!is_noise_segment("謝謝大家"));
+        assert!(!is_noise_segment("謝謝大家收看。下次再見,拜拜。"));
         assert!(!is_noise_segment("我們下週三前要交版本"));
     }
 

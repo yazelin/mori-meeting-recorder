@@ -45,6 +45,19 @@ export default function App() {
     return () => { unlisten?.(); };
   }, []);
 
+  // 新錄音開始 → Rust emit "live-reset" → 立刻清空上一場字幕(不等第一段)。
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    (async () => {
+      unlisten = await listen("live-reset", () => {
+        sessionRef.current = null;
+        setLiveSys([]);
+        setLiveMic([]);
+      });
+    })();
+    return () => { unlisten?.(); };
+  }, []);
+
   // 浮動字幕視窗(caption-sys / caption-mic):錄音開始 show、停止 hide。
   // App 常駐,polling recorder_status 偵測 recording 轉換,只在轉換點動作(不每 tick 重複)。
   const wasRecording = useRef(false);

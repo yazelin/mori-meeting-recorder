@@ -150,6 +150,10 @@ impl Recorder {
         });
         *self.state.lock().map_err(|e| e.to_string())? = State::Recording;
 
+        // 新一場錄音 → 廣播 live-reset,讓 in-tab Live 與兩個浮動字幕視窗立刻清空上一場字幕
+        // (否則要等這場第一段轉完才靠 session_id 換掉,中間會看到上一場的稿,分不清新舊)。
+        let _ = app.emit("live-reset", ());
+
         // === VU meter 50ms emit loop ===
         // Recorder is Arc-singleton via OnceLock, so we clone the Arc and let
         // the spawned task hold its own ref. The task self-stops when state != Recording.
