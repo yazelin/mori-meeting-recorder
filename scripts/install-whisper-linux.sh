@@ -79,7 +79,24 @@ else
   echo "✓ downloaded: $model_dir/ggml-small.bin"
 fi
 
-# 3. sanity test
+# 3. opencc (optional — Traditional Chinese conversion)
+# Install the opencc package if available via apt. Non-fatal: whisper transcription
+# still works without opencc; the Rust side gracefully skips conversion if absent.
+echo ""
+echo "==> opencc (optional, for Traditional Chinese conversion)"
+if command -v opencc >/dev/null 2>&1; then
+  echo "✓ opencc already on PATH"
+elif command -v apt-get >/dev/null 2>&1; then
+  echo "→ installing opencc via apt-get…"
+  sudo apt-get install -y opencc || echo "! opencc install failed — Traditional conversion will be skipped at runtime (non-fatal)"
+else
+  echo "! apt-get not found — install opencc manually (e.g. from your distro package manager)"
+  echo "  Arch: sudo pacman -S opencc | Fedora: sudo dnf install opencc"
+  echo "  Or place the opencc binary at $bin_dir/opencc"
+  echo "  (Traditional conversion will be skipped at runtime until opencc is available)"
+fi
+
+# 4. sanity test
 echo ""
 echo "==> sanity check"
 "$bin_dir/whisper-cli" --help 2>&1 | head -2 || {
