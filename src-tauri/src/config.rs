@@ -16,6 +16,12 @@ fn default_min_speech_secs() -> f32 {
 fn default_max_segment_secs() -> f32 {
     20.0
 }
+fn default_language() -> String {
+    "zh".to_string()
+}
+fn default_traditional() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RecorderConfig {
@@ -27,6 +33,10 @@ pub struct RecorderConfig {
     pub min_speech_secs: f32,
     #[serde(default = "default_max_segment_secs")]
     pub max_segment_secs: f32,
+    #[serde(default = "default_language")]
+    pub language: String,
+    #[serde(default = "default_traditional")]
+    pub traditional: bool,
 }
 
 impl Default for RecorderConfig {
@@ -36,6 +46,8 @@ impl Default for RecorderConfig {
             silence_threshold_db: default_silence_threshold_db(),
             min_speech_secs: default_min_speech_secs(),
             max_segment_secs: default_max_segment_secs(),
+            language: default_language(),
+            traditional: default_traditional(),
         }
     }
 }
@@ -78,6 +90,8 @@ mod tests {
         assert_eq!(c.silence_threshold_db, -45.0);
         assert_eq!(c.min_speech_secs, 0.5);
         assert_eq!(c.max_segment_secs, 20.0);
+        assert_eq!(c.language, "zh");
+        assert!(c.traditional);
     }
 
     #[test]
@@ -102,5 +116,14 @@ mod tests {
     fn empty_json_all_defaults() {
         let c: RecorderConfig = serde_json::from_str("{}").unwrap();
         assert_eq!(c, RecorderConfig::default());
+    }
+
+    #[test]
+    fn missing_language_and_traditional_fall_back() {
+        // JSON without the new fields should fall back to zh/true via serde defaults
+        let json = r#"{"silence_split_ms":600,"silence_threshold_db":-45.0,"min_speech_secs":0.5,"max_segment_secs":20.0}"#;
+        let c: RecorderConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(c.language, "zh");
+        assert!(c.traditional);
     }
 }
