@@ -218,4 +218,14 @@ mod tests {
         assert!(public_md.contains("] 你好"), "got: {public_md}");
         assert!(!public_md.contains(": 你好"));
     }
+
+    #[test]
+    fn internal_mic_segment_with_speaker_shows_both_prefixes() {
+        use crate::diarize::SpeakerInfo;
+        let mut s = seg("b", "mic_internal", "internal", 1000, "私聊");
+        s.speaker = Some("S2".into());
+        let speakers = vec![SpeakerInfo { id: "S2".into(), display: "亞澤".into(), track: "mic-internal".into() }];
+        let (_, int_md, _) = export(&[s], &meta("m"), &speakers).unwrap();
+        assert!(int_md.contains("(內部)亞澤: 私聊"), "got: {int_md}");
+    }
 }

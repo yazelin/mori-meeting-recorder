@@ -34,7 +34,6 @@ const MIXED_MIN_FRAC: f64 = 0.30;
 /// 把每軌 spans 對齊到該軌 segments:多數重疊賦 speaker(統一 S1..Sn),次多顯著 → speaker_mixed。
 /// 跨軌統一編號(一人只在一軌)。回 (標好的 segments, 講者表)。
 pub fn assign_speakers(tracks: Vec<TrackDiarization>) -> (Vec<Segment>, Vec<SpeakerInfo>) {
-    use std::collections::HashMap;
     let mut speakers: Vec<SpeakerInfo> = Vec::new();
     let mut out: Vec<Segment> = Vec::new();
     let mut next_global = 1usize;
@@ -83,10 +82,10 @@ pub fn assign_speakers(tracks: Vec<TrackDiarization>) -> (Vec<Segment>, Vec<Spea
     (out, speakers)
 }
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct SpeakerEntry {
     display: String,
     track: String,
@@ -172,7 +171,7 @@ mod tests {
     #[test]
     fn two_speaker_segment_is_mixed_and_takes_majority() {
         // 段 0..2000:講者0 佔 0..1600(多數)、講者1 佔 1600..2000(400ms);
-        // 段長 2000 → 門檻 min(1000, 600)=600;次多 400 < 600 → 不 mixed
+        // 段長 2000 → 門檻 min(600, 1000)=600;次多 400 < 600 → 不 mixed
         let td = TrackDiarization {
             track: "system".into(),
             spans: vec![
@@ -185,7 +184,7 @@ mod tests {
         assert_eq!(segs[0].speaker.as_deref(), Some("S1")); // 多數 = local 0 = S1
         assert!(!segs[0].speaker_mixed);
 
-        // 段 0..2000:講者0 佔 0..1000、講者1 佔 1000..2000(1000ms);門檻 min(1000,600)=600;次多 1000>=600 → mixed
+        // 段 0..2000:講者0 佔 0..1000、講者1 佔 1000..2000(1000ms);門檻 min(600,1000)=600;次多 1000>=600 → mixed
         let td2 = TrackDiarization {
             track: "system".into(),
             spans: vec![
@@ -225,10 +224,12 @@ mod tests {
             spans: vec![SpeakerSpan { start_ms: 0, end_ms: 1000, speaker_local: 0 }],
             segments: vec![seg("mic-internal", "mic_internal", "internal", 0, 1000)],
         };
-        let (_segs, speakers) = assign_speakers(vec![sys, mic]);
+        let (segs, speakers) = assign_speakers(vec![sys, mic]);
         // sys 兩群 → S1,S2;mic 一群 → S3
         assert_eq!(speakers.iter().map(|s| s.id.clone()).collect::<Vec<_>>(), vec!["S1", "S2", "S3"]);
         assert_eq!(speakers[2].track, "mic-internal");
+        assert_eq!(segs[0].speaker.as_deref(), Some("S1"));
+        assert_eq!(segs[1].speaker.as_deref(), Some("S3"));
     }
 
     #[test]
@@ -252,5 +253,18 @@ mod tests {
     #[test]
     fn read_speakers_missing_file_is_empty() {
         assert!(read_speakers(std::path::Path::new("/nonexistent/speakers.json")).is_empty());
+    }
+
+    #[test]
+    fn empty_spans_yields_no_speaker() {
+        let td = TrackDiarization {
+            track: "system".into(),
+            spans: vec![],
+            segments: vec![seg("system", "meeting_system", "public", 0, 1000)],
+        };
+        let (segs, speakers) = assign_speakers(vec![td]);
+        assert_eq!(segs[0].speaker, None);
+        assert!(!segs[0].speaker_mixed);
+        assert!(speakers.is_empty());
     }
 }
