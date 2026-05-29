@@ -101,7 +101,9 @@
     "reexport_title": "Re-export",
     "reexport_btn": "Re-export",
     "reexporting": "Exporting…",
-    "reexport_ok": "Export complete"
+    "reexport_ok": "Export complete",
+    "src_system": "System",
+    "src_mic": "Mic"
   },
   "people": {
     "title": "People",

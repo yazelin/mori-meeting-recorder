@@ -448,6 +448,13 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                 <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 10, color: "var(--text-dim)", flexShrink: 0, paddingTop: 3 }}>
                   {fmtMs(seg.start_ms)}
                 </span>
+                <span
+                  className="seg-pill"
+                  data-tone={seg.track === "system" ? "public" : "internal"}
+                  style={{ flexShrink: 0, alignSelf: "center" }}
+                >
+                  {seg.track === "system" ? t("workspace.src_system") : t("workspace.src_mic")}
+                </span>
                 {/* Per-segment speaker Select (only when speakers exist) */}
                 {speakerOptions.length > 0 ? (
                   <span style={{ flexShrink: 0, position: "relative" }}>
