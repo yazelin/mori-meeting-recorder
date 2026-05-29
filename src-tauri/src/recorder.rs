@@ -329,7 +329,7 @@ impl Recorder {
                 internal: "meeting.internal.md".into(),
             },
         };
-        let (pub_md, int_md, timeline) = export(&all_segs, &meta)?;
+        let (pub_md, int_md, timeline) = export(&all_segs, &meta, &[])?;
         std::fs::write(store.public_md_path(), pub_md).map_err(|e| format!("write public.md: {e}"))?;
         std::fs::write(store.internal_md_path(), int_md).map_err(|e| format!("write internal.md: {e}"))?;
         std::fs::write(store.timeline_path(), timeline).map_err(|e| format!("write timeline.json: {e}"))?;
