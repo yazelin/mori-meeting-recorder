@@ -36,7 +36,7 @@
   },
   "sessions": {
     "title": "Session 列表",
-    "hint": "唯讀。點任一筆開資料夾。",
+    "hint": "點卡片進工作區;↗ 開資料夾。",
     "empty": "目前還沒有任何 session。"
   },
   "live": {
@@ -72,6 +72,32 @@
     "traditional": "轉成台灣繁體",
     "traditional_hint": "把簡體輸出用 OpenCC 轉台灣繁體(需安裝 opencc 工具,沒裝就略過不轉)。"
   },
+  "workspace": {
+    "back": "返回",
+    "loading": "載入中…",
+    "info_title": "會議資訊",
+    "topic_label": "主題",
+    "topic_ph": "這場會議的主題",
+    "participants_label": "人員",
+    "participants_ph": "有誰在場(用逗號或換行分隔)",
+    "save": "儲存",
+    "saved": "已儲存",
+    "diar_title": "講者分離",
+    "diar_btn": "分人",
+    "diarizing": "分人中…",
+    "diar_wait": "請稍候,這可能需要幾分鐘",
+    "diar_no_model_hint": "請先到 Deps 分頁下載分人模型",
+    "speakers_title": "講者清單",
+    "speaker_custom": "自訂名稱",
+    "transcript_title": "逐字稿",
+    "transcript_empty": "尚無逐字稿",
+    "unknown_speaker": "未知",
+    "mixed_badge": "多位?",
+    "reexport_title": "重新匯出",
+    "reexport_btn": "重新匯出",
+    "reexporting": "匯出中…",
+    "reexport_ok": "匯出完成"
+  },
   "deps": {
     "title": "依賴檢查",
     "hint": "Mori Meeting Recorder 需要 whisper.cpp CLI + GGML model。安裝指令在下方,自己貼 terminal 跑。",
@@ -98,6 +124,10 @@
     "linux_install": "完整安裝(whisper-cli + small 模型)",
     "windows_install": "Windows 安裝指令(複製到 PowerShell 跑)",
     "copy": "複製",
-    "copied": "已複製 ✓"
+    "copied": "已複製 ✓",
+    "diar_model_title": "講者分離模型",
+    "diar_model_label": "分人模型",
+    "diar_model_hint": "用於在轉錄後自動辨識說話者身份。下載約需數分鐘。",
+    "diar_download_btn": "下載分人模型"
   }
 }

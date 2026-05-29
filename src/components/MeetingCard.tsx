@@ -18,6 +18,7 @@ interface SessionSummary {
 interface Props {
   summary: SessionSummary;
   onOpen: (id: string) => void;
+  onWorkspace?: (id: string) => void;
 }
 
 function fmtStartedAt(iso: string): string {
@@ -42,13 +43,13 @@ function fmtDuration(secs: number): string {
   return `${s}s`;
 }
 
-export default function MeetingCard({ summary, onOpen }: Props) {
+export default function MeetingCard({ summary, onOpen, onWorkspace }: Props) {
   if (summary.corrupt) {
     return (
       <div className="meeting-card corrupt" onClick={(e) => e.stopPropagation()}>
         <div className="mc-body">
           <span className="mc-id">{summary.id}</span>
-          <span className="mc-corrupt-tag">⚠ 資料損毀(無 timeline.json)</span>
+          <span className="mc-corrupt-tag">資料損毀(無 timeline.json)</span>
         </div>
         <div className="mc-pills" />
         <button className="mc-open" disabled title="無法開啟損毀的 session">↗</button>
@@ -57,8 +58,12 @@ export default function MeetingCard({ summary, onOpen }: Props) {
   }
 
   const open = () => onOpen(summary.id);
+  const openWorkspace = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onWorkspace?.(summary.id);
+  };
   return (
-    <div className="meeting-card" onClick={open}>
+    <div className="meeting-card" onClick={onWorkspace ? () => onWorkspace(summary.id) : open}>
       <div className="mc-body">
         <span className="mc-id">{summary.id}</span>
         <span className="mc-subtitle">
@@ -74,11 +79,21 @@ export default function MeetingCard({ summary, onOpen }: Props) {
         <SegPill tone="public"   count={summary.public_segs} />
         <SegPill tone="internal" count={summary.internal_segs} />
       </div>
-      <button
-        className="mc-open"
-        onClick={(e) => { e.stopPropagation(); open(); }}
-        title="開啟資料夾"
-      >↗</button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+        {onWorkspace && (
+          <button
+            className="mmr-btn"
+            style={{ fontSize: 11, padding: "3px 8px" }}
+            onClick={openWorkspace}
+            title="整理工作區"
+          >整理</button>
+        )}
+        <button
+          className="mc-open"
+          onClick={(e) => { e.stopPropagation(); open(); }}
+          title="開啟資料夾"
+        >↗</button>
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import MeetingCard from "../components/MeetingCard";
+import SessionWorkspace from "./SessionWorkspace";
 
 interface SessionSummary {
   id: string;
@@ -16,6 +17,7 @@ interface SessionSummary {
 export default function SessionsTab() {
   const { t } = useTranslation();
   const [summaries, setSummaries] = useState<SessionSummary[] | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<SessionSummary[]>("list_sessions_detailed")
@@ -26,6 +28,10 @@ export default function SessionsTab() {
   const onOpen = async (id: string) => {
     try { await invoke("open_session_dir", { sessionId: id }); } catch {}
   };
+
+  if (openId) {
+    return <SessionWorkspace sessionId={openId} onBack={() => setOpenId(null)} />;
+  }
 
   return (
     <div>
@@ -38,7 +44,7 @@ export default function SessionsTab() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column" }}>
           {summaries.map((s) => (
-            <MeetingCard key={s.id} summary={s} onOpen={onOpen} />
+            <MeetingCard key={s.id} summary={s} onOpen={onOpen} onWorkspace={s.corrupt ? undefined : setOpenId} />
           ))}
         </div>
       )}

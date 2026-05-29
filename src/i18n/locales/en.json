@@ -36,7 +36,7 @@
   },
   "sessions": {
     "title": "Sessions",
-    "hint": "Read-only. Click a row to open its folder.",
+    "hint": "Click a card to open the workspace; ↗ opens the folder.",
     "empty": "No sessions yet."
   },
   "live": {
@@ -72,6 +72,32 @@
     "traditional": "Convert to Traditional (Taiwan)",
     "traditional_hint": "Converts Simplified output to Taiwan Traditional via OpenCC (needs the opencc tool installed; otherwise no-op)."
   },
+  "workspace": {
+    "back": "Back",
+    "loading": "Loading…",
+    "info_title": "Meeting Info",
+    "topic_label": "Topic",
+    "topic_ph": "This meeting's topic",
+    "participants_label": "Participants",
+    "participants_ph": "Who's here (comma or newline separated)",
+    "save": "Save",
+    "saved": "Saved",
+    "diar_title": "Speaker Diarization",
+    "diar_btn": "Diarize",
+    "diarizing": "Diarizing…",
+    "diar_wait": "Please wait, this may take a few minutes",
+    "diar_no_model_hint": "Please download the diarization model in the Deps tab first",
+    "speakers_title": "Speakers",
+    "speaker_custom": "Custom name",
+    "transcript_title": "Transcript",
+    "transcript_empty": "No transcript yet",
+    "unknown_speaker": "Unknown",
+    "mixed_badge": "multi?",
+    "reexport_title": "Re-export",
+    "reexport_btn": "Re-export",
+    "reexporting": "Exporting…",
+    "reexport_ok": "Export complete"
+  },
   "deps": {
     "title": "Dependency check",
     "hint": "Requires whisper.cpp CLI + a GGML model. Copy the install command below into your terminal.",
@@ -98,6 +124,10 @@
     "linux_install": "Full install (whisper-cli + small model)",
     "windows_install": "Windows install command",
     "copy": "Copy",
-    "copied": "Copied ✓"
+    "copied": "Copied ✓",
+    "diar_model_title": "Diarization Model",
+    "diar_model_label": "Diarization model",
+    "diar_model_hint": "Used to automatically identify speakers after transcription. Download takes a few minutes.",
+    "diar_download_btn": "Download diarization model"
   }
 }

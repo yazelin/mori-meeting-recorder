@@ -94,6 +94,39 @@ pub fn diarize_session_inner(
     })
 }
 
+/// 讀一場 session 兩軌 jsonl 合併(依 start_ms 排序),給工作區顯示。
+pub fn read_session_segments(session_root: &std::path::Path) -> Vec<crate::transcribe::Segment> {
+    let mut all = crate::transcribe::read_segments_jsonl(
+        &session_root.join("transcript/system.segments.jsonl"),
+    );
+    all.extend(crate::transcribe::read_segments_jsonl(
+        &session_root.join("transcript/mic-internal.segments.jsonl"),
+    ));
+    all.sort_by_key(|s| s.start_ms);
+    all
+}
+
+/// 用目前 jsonl(已含 speaker)+ speakers.json 重新匯出 meeting.public/internal.md。
+/// meta 由 timeline.json 還原(就是序列化過的 SessionMeta)。
+pub fn reexport_session(session_root: &std::path::Path) -> Result<(), String> {
+    let segs = read_session_segments(session_root);
+    let speakers = crate::diarize::read_speakers(
+        &session_root.join("transcript/speakers.json"),
+    );
+    let meta_json = std::fs::read_to_string(session_root.join("timeline.json"))
+        .map_err(|e| format!("read timeline.json: {e}"))?;
+    let meta: crate::exporter::SessionMeta =
+        serde_json::from_str(&meta_json).map_err(|e| format!("parse timeline.json: {e}"))?;
+    let (pub_md, int_md, timeline) = crate::exporter::export(&segs, &meta, &speakers)?;
+    std::fs::write(session_root.join("meeting.public.md"), pub_md)
+        .map_err(|e| format!("write public: {e}"))?;
+    std::fs::write(session_root.join("meeting.internal.md"), int_md)
+        .map_err(|e| format!("write internal: {e}"))?;
+    std::fs::write(session_root.join("timeline.json"), timeline)
+        .map_err(|e| format!("write timeline: {e}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +179,165 @@ mod tests {
         // speakers.json should exist
         let speakers_json = transcript_dir.join("speakers.json");
         assert!(speakers_json.exists(), "speakers.json should exist");
+    }
+
+    /// TDD pure test: reexport_session reads jsonl + speakers.json + timeline.json →
+    /// writes meeting.public.md containing the speaker display name prefix.
+    #[test]
+    fn reexport_session_writes_public_md_with_speaker_prefix() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+
+        // --- setup transcript dir ---
+        let transcript_dir = root.join("transcript");
+        std::fs::create_dir_all(&transcript_dir).unwrap();
+
+        // system segment with speaker=Some("S1"), visibility=public
+        let sys_seg = Segment {
+            id: "s1".into(),
+            session_id: "meeting-test".into(),
+            track: "system".into(),
+            source_kind: "meeting_system".into(),
+            visibility: "public".into(),
+            start_ms: 1000,
+            end_ms: 3000,
+            text: "這是系統音訊".into(),
+            is_final: true,
+            confidence: None,
+            speaker: Some("S1".into()),
+            speaker_mixed: false,
+        };
+        std::fs::write(
+            transcript_dir.join("system.segments.jsonl"),
+            serde_json::to_string(&sys_seg).unwrap() + "\n",
+        )
+        .unwrap();
+
+        // mic-internal segment without speaker, visibility=internal
+        let mic_seg = Segment {
+            id: "m1".into(),
+            session_id: "meeting-test".into(),
+            track: "mic-internal".into(),
+            source_kind: "mic_internal".into(),
+            visibility: "internal".into(),
+            start_ms: 2000,
+            end_ms: 4000,
+            text: "這是內部麥克風".into(),
+            is_final: true,
+            confidence: None,
+            speaker: None,
+            speaker_mixed: false,
+        };
+        std::fs::write(
+            transcript_dir.join("mic-internal.segments.jsonl"),
+            serde_json::to_string(&mic_seg).unwrap() + "\n",
+        )
+        .unwrap();
+
+        // speakers.json: S1 → 亞澤
+        let speakers = vec![SpeakerInfo {
+            id: "S1".into(),
+            display: "亞澤".into(),
+            track: "system".into(),
+        }];
+        crate::diarize::write_speakers(&transcript_dir.join("speakers.json"), &speakers).unwrap();
+
+        // timeline.json: minimal SessionMeta
+        let meta = crate::exporter::SessionMeta {
+            schema_version: 1,
+            session_id: "meeting-test".into(),
+            started_at: "2026-05-30T10:00:00+08:00".into(),
+            stopped_at: "2026-05-30T10:30:00+08:00".into(),
+            duration_secs: 1800,
+            tracks: vec![],
+            exports: crate::exporter::Exports {
+                public: "meeting.public.md".into(),
+                internal: "meeting.internal.md".into(),
+            },
+        };
+        std::fs::write(
+            root.join("timeline.json"),
+            serde_json::to_string_pretty(&meta).unwrap(),
+        )
+        .unwrap();
+
+        // --- act ---
+        reexport_session(root).unwrap();
+
+        // --- assert ---
+        let public_md = std::fs::read_to_string(root.join("meeting.public.md")).unwrap();
+        assert!(
+            public_md.contains("亞澤: "),
+            "public.md should contain speaker display prefix '亞澤: ', got:\n{public_md}"
+        );
+        assert!(
+            public_md.contains("這是系統音訊"),
+            "public.md should contain segment text, got:\n{public_md}"
+        );
+        // mic-internal is internal visibility → must NOT appear in public.md
+        assert!(
+            !public_md.contains("這是內部麥克風"),
+            "public.md must not contain internal segment, got:\n{public_md}"
+        );
+
+        // internal.md should contain mic segment (no speaker prefix)
+        let internal_md = std::fs::read_to_string(root.join("meeting.internal.md")).unwrap();
+        assert!(
+            internal_md.contains("這是內部麥克風"),
+            "internal.md should contain mic segment, got:\n{internal_md}"
+        );
+    }
+
+    /// read_session_segments merges both tracks sorted by start_ms.
+    #[test]
+    fn read_session_segments_merges_and_sorts() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let transcript_dir = root.join("transcript");
+        std::fs::create_dir_all(&transcript_dir).unwrap();
+
+        let seg_early = Segment {
+            id: "m1".into(),
+            session_id: "x".into(),
+            track: "mic-internal".into(),
+            source_kind: "mic_internal".into(),
+            visibility: "internal".into(),
+            start_ms: 500,
+            end_ms: 1500,
+            text: "早".into(),
+            is_final: true,
+            confidence: None,
+            speaker: None,
+            speaker_mixed: false,
+        };
+        let seg_late = Segment {
+            id: "s1".into(),
+            session_id: "x".into(),
+            track: "system".into(),
+            source_kind: "meeting_system".into(),
+            visibility: "public".into(),
+            start_ms: 2000,
+            end_ms: 3000,
+            text: "晚".into(),
+            is_final: true,
+            confidence: None,
+            speaker: None,
+            speaker_mixed: false,
+        };
+        std::fs::write(
+            transcript_dir.join("system.segments.jsonl"),
+            serde_json::to_string(&seg_late).unwrap() + "\n",
+        )
+        .unwrap();
+        std::fs::write(
+            transcript_dir.join("mic-internal.segments.jsonl"),
+            serde_json::to_string(&seg_early).unwrap() + "\n",
+        )
+        .unwrap();
+
+        let segs = read_session_segments(root);
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[0].start_ms, 500, "first segment should be the mic-internal (earliest)");
+        assert_eq!(segs[1].start_ms, 2000, "second segment should be the system (later)");
     }
 }

@@ -27,11 +27,34 @@ export default function DepsTab() {
 
   const [gpu, setGpu] = useState<GpuStatus | null>(null);
 
+  // Diarization model state
+  const [diarPresent, setDiarPresent] = useState<boolean | null>(null);
+  const [diarDl, setDiarDl] = useState(false);
+  const [diarErr, setDiarErr] = useState<string | null>(null);
+
+  const recheckDiar = async () => {
+    try { setDiarPresent(await invoke<boolean>("diar_models_present")); } catch {}
+  };
+
   const recheck = async () => {
     try { setDeps(await invoke<DepsCheck>("deps_check")); } catch {}
     try { setGpu(await invoke<GpuStatus>("gpu_status")); } catch {}
+    await recheckDiar();
   };
-  useEffect(() => { recheck(); }, []);
+  useEffect(() => { recheck(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const downloadDiarModels = async () => {
+    setDiarErr(null);
+    setDiarDl(true);
+    try {
+      await invoke("download_diar_models");
+      await recheckDiar();
+    } catch (e: any) {
+      setDiarErr(String(e));
+    } finally {
+      setDiarDl(false);
+    }
+  };
 
   // app 內下載目前選的模型 + polling 進度 bar。
   const downloadModel = async () => {
@@ -68,6 +91,31 @@ export default function DepsTab() {
         <DepRow label={t("deps.model")} ok={deps?.model_ok ?? false} path={deps?.model_path ?? "—"} t={t} />
       </div>
       <button className="mmr-btn" onClick={recheck} style={{ marginTop: 12 }}>{t("deps.recheck")}</button>
+
+      <h4>{t("deps.diar_model_title")}</h4>
+      <div className="dep-row">
+        <span className="label">{t("deps.diar_model_label")}</span>
+        <span className={diarPresent === true ? "ok" : "miss"}>
+          {diarPresent === null ? "…" : diarPresent ? t("deps.found") : t("deps.missing")}
+        </span>
+      </div>
+      {diarPresent === false && (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+          <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: 0 }}>{t("deps.diar_model_hint")}</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="mmr-btn primary" onClick={downloadDiarModels} disabled={diarDl}>
+              {diarDl ? (
+                <><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("deps.downloading")}</>
+              ) : t("deps.diar_download_btn")}
+            </button>
+          </div>
+          {diarErr && (
+            <div className="callout" style={{ color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.3)", background: "rgba(255,99,99,0.08)" }}>
+              {diarErr}
+            </div>
+          )}
+        </div>
+      )}
 
       <h4>{t("deps.gpu_title")}</h4>
       <div className="dep-row">

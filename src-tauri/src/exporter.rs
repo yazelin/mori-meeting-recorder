@@ -3,9 +3,9 @@
 
 use crate::audio::SourceKind;
 use crate::transcribe::Segment;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMeta {
     pub schema_version: u32,
     pub session_id: String,
@@ -16,7 +16,7 @@ pub struct SessionMeta {
     pub exports: Exports,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackMeta {
     pub name: String,
     pub source_kind: String,
@@ -26,7 +26,7 @@ pub struct TrackMeta {
     pub segment_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Exports {
     pub public: String,
     pub internal: String,
