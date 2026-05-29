@@ -3,6 +3,92 @@
 
 use crate::transcribe::Segment;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+// ── 模型路徑 helpers ─────────────────────────────────────────────────────────
+
+/// segmentation 模型路徑(下載時 rename 成這個固定名)。
+pub fn seg_model_path() -> PathBuf {
+    dirs::home_dir().unwrap_or_default().join(".mori").join("models").join("pyannote-segmentation-3-0.onnx")
+}
+
+/// speaker embedding 模型路徑。
+pub fn emb_model_path() -> PathBuf {
+    dirs::home_dir().unwrap_or_default().join(".mori").join("models").join("3dspeaker-eres2net-zh.onnx")
+}
+
+/// 兩個模型都在才算裝好。
+pub fn diarization_models_present() -> bool {
+    seg_model_path().exists() && emb_model_path().exists()
+}
+
+// ── diarize_wav 引擎(sherpa-onnx) ───────────────────────────────────────────
+
+/// 對單一 WAV 跑 sherpa-onnx 講者分離。`num_clusters`:Some(n>0) 用已知人數(品質最佳,
+/// 來自 meeting-info 人員數);None → 自動(cluster threshold,易過/欠切,使用者改名時修)。
+/// 回 SpeakerSpan(該軌 local speaker id)。模型缺 / 引擎錯 → Err(caller 視為「該軌不標」)。
+pub fn diarize_wav(wav: &std::path::Path, num_clusters: Option<usize>) -> Result<Vec<SpeakerSpan>, String> {
+    use sherpa_onnx::{
+        FastClusteringConfig, OfflineSpeakerDiarization, OfflineSpeakerDiarizationConfig,
+        OfflineSpeakerSegmentationModelConfig, OfflineSpeakerSegmentationPyannoteModelConfig,
+        SpeakerEmbeddingExtractorConfig, Wave,
+    };
+    let seg = seg_model_path();
+    let emb = emb_model_path();
+    if !seg.exists() || !emb.exists() {
+        return Err("diarization models not installed".to_string());
+    }
+    // num_clusters>0 用已知人數;否則 -1 = 交給 threshold(起點 0.7,spike 觀察 0.5 過切)。
+    let clustering = match num_clusters {
+        Some(n) if n > 0 => FastClusteringConfig { num_clusters: n as i32, ..Default::default() },
+        _ => FastClusteringConfig { num_clusters: -1, threshold: 0.7 },
+    };
+    let config = OfflineSpeakerDiarizationConfig {
+        segmentation: OfflineSpeakerSegmentationModelConfig {
+            pyannote: OfflineSpeakerSegmentationPyannoteModelConfig {
+                model: Some(seg.to_string_lossy().to_string()),
+            },
+            ..Default::default()
+        },
+        embedding: SpeakerEmbeddingExtractorConfig {
+            model: Some(emb.to_string_lossy().to_string()),
+            ..Default::default()
+        },
+        clustering,
+        ..Default::default()
+    };
+    let sd = OfflineSpeakerDiarization::create(&config)
+        .ok_or_else(|| "create diarizer failed (check model paths / onnxruntime)".to_string())?;
+    let wave = Wave::read(&wav.to_string_lossy())
+        .ok_or_else(|| format!("read wave {} failed (check file exists + mono WAV)", wav.display()))?;
+    if sd.sample_rate() != wave.sample_rate() {
+        return Err(format!("sample-rate mismatch: model {} vs wav {}", sd.sample_rate(), wave.sample_rate()));
+    }
+    let result = sd.process(wave.samples())
+        .ok_or_else(|| "diarize process returned None".to_string())?;
+    let spans = result
+        .sort_by_start_time()
+        .into_iter()
+        .map(|s| SpeakerSpan {
+            start_ms: (s.start.max(0.0) * 1000.0) as u64,
+            end_ms: (s.end.max(0.0) * 1000.0) as u64,
+            speaker_local: s.speaker.max(0) as usize,
+        })
+        .collect();
+    Ok(spans)
+}
+
+// ── participant_count ─────────────────────────────────────────────────────────
+
+/// 從 meeting-info 的人員字串數人數(逗號 , 、頓號 、 、分號 ; 、換行 皆分隔);空 → None。
+pub fn participant_count(participants: &str) -> Option<usize> {
+    let n = participants
+        .split(|c| c == ',' || c == '、' || c == ';' || c == '\n' || c == '，')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .count();
+    if n > 0 { Some(n) } else { None }
+}
 
 /// 一個講者-同質時間段(引擎輸出);speaker_local = 該軌內的本地群 id(0-based)。
 #[derive(Debug, Clone, PartialEq)]
@@ -137,6 +223,37 @@ pub fn rename_speaker(path: &Path, id: &str, new_display: &str) -> Result<(), St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── 模型路徑 + participant_count 純函式測試 ──────────────────────────────
+
+    #[test]
+    fn diar_model_paths_under_mori_models() {
+        assert!(seg_model_path().to_string_lossy().contains(".mori/models") || seg_model_path().to_string_lossy().contains(".mori\\models"));
+        assert!(emb_model_path().ends_with("3dspeaker-eres2net-zh.onnx"));
+    }
+
+    #[test]
+    fn participant_count_counts_names() {
+        assert_eq!(participant_count("亞澤, 老闆、阿明\n小美"), Some(4));
+        assert_eq!(participant_count("  "), None);
+        assert_eq!(participant_count(""), None);
+        assert_eq!(participant_count("只有我"), Some(1));
+    }
+
+    /// 需 ~/.mori/models 的兩個 diar 模型 + 一個多人 wav。手動:
+    ///   DIAR_WAV=/path/0-four-speakers-zh.wav cargo test --release diarize_wav_real -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn diarize_wav_real() {
+        let wav = std::env::var("DIAR_WAV").expect("set DIAR_WAV");
+        let spans = diarize_wav(std::path::Path::new(&wav), Some(4)).expect("diarize");
+        eprintln!("got {} spans", spans.len());
+        assert!(!spans.is_empty());
+        let speakers: std::collections::BTreeSet<usize> = spans.iter().map(|s| s.speaker_local).collect();
+        assert!(speakers.len() >= 2, "expected ≥2 speakers, got {}", speakers.len());
+    }
+
+    // ── assign_speakers / speakers.json 既有測試 ────────────────────────────
 
     fn seg(track: &str, source: &str, vis: &str, start: u64, end: u64) -> Segment {
         Segment {
