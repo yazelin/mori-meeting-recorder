@@ -80,6 +80,12 @@ else
   if compgen -G "libggml-cuda.so.*.*.*" > /dev/null; then
     ln -sf "$(ls libggml-cuda.so.*.*.* | sort -V | tail -1)" libggml-cuda.so.0
   fi
+  # 診斷:GPU backend lib 有沒有進 bin(沒進 = CPU build,或 build 時 nvcc 不在 PATH)
+  if compgen -G "$bin_dir/libggml-cuda.so*" > /dev/null; then
+    echo "  ✓ GPU backend lib: $(ls "$bin_dir"/libggml-cuda.so* | xargs -n1 basename | tr '\n' ' ')"
+  else
+    echo "  · CPU build(無 libggml-cuda)。要 GPU:確認 nvcc 在 PATH(which nvcc)後重跑。"
+  fi
   rm -rf "$work"
   echo "✓ built: $bin_dir/whisper-cli"
 fi
