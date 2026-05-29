@@ -606,8 +606,11 @@ fn merge_speakers(session_id: String, keep_id: String, merge_ids: Vec<String>) -
         let relabeled = postprocess::relabel_merge(segs, &keep_id, &merge_ids);
         transcribe::write_segments_jsonl(&path, &relabeled)?;
     }
+    // 把 keep_id 從 drop 清單濾掉:萬一 caller 把 keep_id 也放進 merge_ids,別把保留的講者那列刪掉
+    // (否則段落都指向 keep_id、speakers.json 卻沒它 → 顯示名壞掉)。
+    let drop_ids: Vec<String> = merge_ids.iter().filter(|id| id.as_str() != keep_id).cloned().collect();
     let sp_path = root.join("transcript").join("speakers.json");
-    let kept = postprocess::drop_speakers(diarize::read_speakers(&sp_path), &merge_ids);
+    let kept = postprocess::drop_speakers(diarize::read_speakers(&sp_path), &drop_ids);
     diarize::write_speakers(&sp_path, &kept)
 }
 
