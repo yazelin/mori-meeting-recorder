@@ -164,8 +164,9 @@ fn captions_visible() -> bool {
 #[derive(Serialize)]
 struct GpuStatus {
     gpu_name: Option<String>, // nvidia-smi 偵測到的 GPU(None = 無 NVIDIA GPU)
-    cuda_toolkit: bool,       // nvcc 在不在(能不能 GPU build)
-    whisper_gpu_build: bool,  // 現在這支 whisper-cli 是不是 GPU build(旁邊有 libggml-cuda.so)
+    cuda_toolkit: bool,       // nvcc 在不在(能不能 GPU build)— 只 Linux 需要;Windows cuBLAS zip 自帶 runtime
+    whisper_gpu_build: bool,  // 現在這支 whisper-cli 是不是 GPU build(旁邊有 ggml-cuda.so/.dll)
+    is_windows: bool,         // 決定前端顯示哪套 GPU 啟用步驟(Windows 抓 cuBLAS zip vs Linux build)
 }
 
 /// GPU 偵測 — 給 Deps 頁顯示「能不能 GPU 加速 + 缺什麼」。
@@ -197,7 +198,12 @@ fn gpu_status() -> GpuStatus {
                 .any(|e| e.file_name().to_string_lossy().contains("ggml-cuda"))
         })
         .unwrap_or(false);
-    GpuStatus { gpu_name, cuda_toolkit, whisper_gpu_build }
+    GpuStatus {
+        gpu_name,
+        cuda_toolkit,
+        whisper_gpu_build,
+        is_windows: cfg!(target_os = "windows"),
+    }
 }
 
 #[derive(Serialize)]
