@@ -10,7 +10,9 @@
   "tabs": {
     "record": "錄音",
     "sessions": "Sessions",
-    "deps": "Deps"
+    "deps": "Deps",
+    "live": "字幕",
+    "settings": "設定"
   },
   "record": {
     "start_button": "開始錄音",
@@ -27,6 +29,27 @@
     "title": "Session 列表",
     "hint": "唯讀。點任一筆開資料夾。",
     "empty": "目前還沒有任何 session。"
+  },
+  "live": {
+    "empty": "開始錄音後,即時字幕會出現在這裡。",
+    "pending": "轉錄中…(待處理 {{n}} 段)",
+    "col_sys": "會議音訊 (SYS)",
+    "col_mic": "內部麥克風 (MIC)"
+  },
+  "settings": {
+    "title": "轉錄參數",
+    "silence_split": "靜音切點門檻",
+    "silence_split_hint": "一句話講完的停頓多久算切點。調小=字幕更即時但更碎。",
+    "silence_threshold": "靜音音量門檻",
+    "silence_threshold_hint": "低於此音量視為靜音。",
+    "min_speech": "最短語音段",
+    "min_speech_hint": "比這短的聲音(雜音)不送轉錄。",
+    "max_segment": "安全切點上限",
+    "max_segment_hint": "連續講話超過此長度強制切一次。",
+    "default": "預設 {{v}}",
+    "reset": "還原預設",
+    "save": "儲存",
+    "saved": "已儲存 — 下次錄音生效"
   },
   "deps": {
     "title": "依賴檢查",
