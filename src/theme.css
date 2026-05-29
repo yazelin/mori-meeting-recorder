@@ -748,3 +748,7 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 .mi-voice:hover { background: var(--btn-bg-hover); color: var(--text); }
 .mi-voice:disabled { opacity: 0.35; cursor: not-allowed; }
 .mi-voice.rec { background: var(--danger-color); color: #fff; animation: dot-pulse 1.2s ease-in-out infinite; }
+
+/* 模型下載進度 bar */
+.dl-bar { height: 6px; background: var(--btn-bg); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+.dl-bar-fill { height: 100%; background: var(--accent); transition: width 0.4s ease; }
