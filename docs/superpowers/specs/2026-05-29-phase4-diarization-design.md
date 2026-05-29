@@ -79,6 +79,19 @@ pub speaker_mixed: bool,          // 預設 false;true = 橫跨 ≥2 講者,待�
 
 `meeting.public/internal.md` 有講者時,每段前綴顯示名(`亞澤: …`);改名後可重匯出。`speaker_mixed` 段在工作區標示出來供手動處理。
 
+## 3.7 經驗驗證(2026-05-29,sherpa-onnx prebuilt CLI 實測)
+
+用官方 prebuilt `sherpa-onnx-offline-speaker-diarization`(seg=pyannote-segmentation-3-0,emb=3dspeaker_eres2net_base_zh)對官方中文四人樣本 `0-four-speakers-zh.wav` 實測:
+
+- **給定人數(`--clustering.num-clusters=4`)→ 乾淨正確**:剛好 4 個講者、時間段合理。
+- **自動(`--clustering.cluster-threshold=0.5`)→ 過度切**:分出 8 個(應 4 個)。threshold 預設太小 = 太多群,需調大。
+- **效能**:56.8s 音檔 **CPU 4.3s(RTF 0.076,~13x realtime)**;**GPU 可選**(`--embedding.provider=cuda` / `--segmentation.provider=cuda`),CPU 已足夠(1hr 會議 ≈ 4.5 分鐘)。
+
+**設計結論**:
+- **`num_clusters` 用 `meeting-info` 的人員數**(已填時)→ 走 known-count 模式,品質最佳;沒填 → 退 `cluster-threshold`(需調大,起點 ~0.7)+ 接受過/欠切,使用者改名時修。
+- 引擎優先 CPU(夠快、零 GPU 依賴風險);GPU 經 provider flag 可選加速。
+- engine 邊界 `diarize_wav` 多帶一個 `num_clusters: Option<usize>` 參數(來自人員數)。
+
 ## 4. 錯誤處理(全 graceful)
 
 - 模型未裝 → `diarize_session` 回明確狀態(Deps 提示下載),逐字稿維持不標人。
