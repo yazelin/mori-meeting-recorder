@@ -56,9 +56,10 @@ else
   if compgen -G "build/src/libwhisper.so.*" > /dev/null; then
     cp -f build/src/libwhisper.so.* "$bin_dir/" || true
   fi
-  if compgen -G "build/ggml/src/libggml*.so.*" > /dev/null; then
-    cp -f build/ggml/src/libggml*.so.* "$bin_dir/" || true
-  fi
+  # libggml*.so:CPU/base 在 build/ggml/src/,但 CUDA backend(libggml-cuda.so)在子目錄
+  # build/ggml/src/ggml-cuda/ → 用 find 遞迴抓,不然 GPU build 會漏掉 cuda lib(whisper-cli
+  # 會 error: libggml-cuda.so.0 cannot open)。
+  find build -name 'libggml*.so.*' -exec cp -f {} "$bin_dir/" \; 2>/dev/null || true
   # 把 versioned .so symlink 起來,讓 whisper-cli 用 RPATH=$ORIGIN 找得到
   cd "$bin_dir"
   if compgen -G "libwhisper.so.*.*.*" > /dev/null; then
@@ -75,6 +76,10 @@ else
   if compgen -G "libggml-cpu.so.*.*.*" > /dev/null; then
     ln -sf "$(ls libggml-cpu.so.*.*.* | sort -V | tail -1)" libggml-cpu.so.0
   fi
+  # GPU build 才有:CUDA backend lib 的 SONAME symlink(whisper-cli 找的是 libggml-cuda.so.0)
+  if compgen -G "libggml-cuda.so.*.*.*" > /dev/null; then
+    ln -sf "$(ls libggml-cuda.so.*.*.* | sort -V | tail -1)" libggml-cuda.so.0
+  fi
   rm -rf "$work"
   echo "✓ built: $bin_dir/whisper-cli"
 fi
@@ -89,24 +94,9 @@ else
   echo "✓ downloaded: $model_dir/ggml-small.bin"
 fi
 
-# 3. opencc (optional — Traditional Chinese conversion)
-# Install the opencc package if available via apt. Non-fatal: whisper transcription
-# still works without opencc; the Rust side gracefully skips conversion if absent.
-echo ""
-echo "==> opencc (optional, for Traditional Chinese conversion)"
-if command -v opencc >/dev/null 2>&1; then
-  echo "✓ opencc already on PATH"
-elif command -v apt-get >/dev/null 2>&1; then
-  echo "→ installing opencc via apt-get…"
-  sudo apt-get install -y opencc || echo "! opencc install failed — Traditional conversion will be skipped at runtime (non-fatal)"
-else
-  echo "! apt-get not found — install opencc manually (e.g. from your distro package manager)"
-  echo "  Arch: sudo pacman -S opencc | Fedora: sudo dnf install opencc"
-  echo "  Or place the opencc binary at $bin_dir/opencc"
-  echo "  (Traditional conversion will be skipped at runtime until opencc is available)"
-fi
+# 繁體轉換已內建在 app(ferrous-opencc,bundle OpenCC 官方字典)→ 不再需要外部 opencc。
 
-# 4. sanity test
+# sanity test
 echo ""
 echo "==> sanity check"
 "$bin_dir/whisper-cli" --help 2>&1 | head -2 || {
