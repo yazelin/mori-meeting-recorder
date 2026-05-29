@@ -13,7 +13,7 @@ use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
-    LogicalSize, Manager, Size, WebviewUrl, WebviewWindowBuilder,
+    LogicalSize, Manager, PhysicalPosition, Size, WebviewUrl, WebviewWindowBuilder,
 };
 
 #[derive(Debug, Serialize)]
@@ -71,22 +71,19 @@ fn set_config(cfg: config::RecorderConfig) -> Result<(), String> {
 
 /// 找現有 caption 視窗,沒有就建一個(Rust 端建窗比 JS WebviewWindow.getByLabel 可靠;
 /// 靜態 tauri.conf 定義在某些 Wayland 環境沒被建/show 沒效)。帶 log 方便抓問題。
-fn ensure_caption_window(
-    app: &tauri::AppHandle,
-    label: &str,
-    x: f64,
-) -> Result<tauri::WebviewWindow, String> {
+fn ensure_caption_window(app: &tauri::AppHandle, label: &str) -> Result<tauri::WebviewWindow, String> {
     if let Some(w) = app.get_webview_window(label) {
-        eprintln!("[captions] {label}: found existing");
         return Ok(w);
     }
-    eprintln!("[captions] {label}: not found → creating");
+    eprintln!("[captions] {label}: creating");
+    // transparent(false):透明視窗在這台 Wayland 即使 is_visible=true 也看不到 → 用不透明,
+    // 一定有可見表面。位置在 show 時相對主視窗重設(見 set_captions),這裡只給初始值。
     WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .title(label)
-        .inner_size(360.0, 240.0)
-        .position(x, 90.0)
+        .inner_size(360.0, 220.0)
+        .position(40.0, 120.0)
         .decorations(false)
-        .transparent(true)
+        .transparent(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false)
@@ -94,15 +91,31 @@ fn ensure_caption_window(
         .map_err(|e| format!("{label} build: {e}"))
 }
 
-/// 顯示 / 隱藏兩個浮動字幕視窗。前端 CC 鈕 + 錄音 auto-show 都呼這個。
+/// 顯示 / 隱藏兩個浮動字幕視窗。顯示時擺在「主視窗正下方」—— user 把主視窗拖到哪
+/// (含多螢幕)字幕就跟到哪,不會被擺到看不到的角落。前端 CC 鈕 + 錄音 auto-show 都呼這個。
 #[tauri::command]
 fn set_captions(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
-    for (label, x) in [("caption-sys", 20.0_f64), ("caption-mic", 396.0_f64)] {
-        match ensure_caption_window(&app, label, x) {
+    let (base_x, base_y) = app
+        .get_webview_window("main")
+        .and_then(|m| {
+            let p = m.outer_position().ok()?;
+            let s = m.outer_size().ok()?;
+            Some((p.x, p.y + s.height as i32 + 8))
+        })
+        .unwrap_or((40, 120));
+    for (i, label) in ["caption-sys", "caption-mic"].into_iter().enumerate() {
+        match ensure_caption_window(&app, label) {
             Ok(w) => {
-                let r = if visible { w.show() } else { w.hide() };
+                if visible {
+                    let x = base_x + (i as i32) * 368;
+                    let _ = w.set_position(PhysicalPosition::new(x, base_y));
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                } else {
+                    let _ = w.hide();
+                }
                 eprintln!(
-                    "[captions] {label}: set visible={visible} -> {r:?}; is_visible={:?} pos={:?} size={:?}",
+                    "[captions] {label}: visible={visible} is_visible={:?} pos={:?} size={:?}",
                     w.is_visible().ok(),
                     w.outer_position().ok(),
                     w.inner_size().ok()
@@ -249,8 +262,8 @@ fn main() {
             // 預先建好兩個浮動字幕視窗(hidden)。在 startup 建,避免「建完馬上 show」的 race
             // (build().visible(false) 後立刻 show 時 is_visible 還是 false,視窗沒真的出來)。
             // 等 set_captions 被呼叫時 → 已 found existing → show 可靠生效。
-            let _ = ensure_caption_window(app.handle(), "caption-sys", 20.0);
-            let _ = ensure_caption_window(app.handle(), "caption-mic", 396.0);
+            let _ = ensure_caption_window(app.handle(), "caption-sys");
+            let _ = ensure_caption_window(app.handle(), "caption-mic");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
