@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./theme.css";
 import "./i18n";
 import CapsuleView from "./CapsuleView";
@@ -14,8 +13,6 @@ interface LiveSegmentEvent {
   track: "sys" | "mic";
   segment: { session_id: string; start_ms: number; text: string };
 }
-
-const CAPTION_LABELS = ["caption-sys", "caption-mic"];
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("collapsed");
@@ -53,11 +50,7 @@ export default function App() {
   const wasRecording = useRef(false);
   useEffect(() => {
     const setCaptionVisible = async (visible: boolean) => {
-      for (const label of CAPTION_LABELS) {
-        const w = await WebviewWindow.getByLabel(label);
-        if (!w) continue;
-        try { await (visible ? w.show() : w.hide()); } catch { /* ignore */ }
-      }
+      try { await invoke("set_captions", { visible }); } catch { /* ignore */ }
     };
     const tick = async () => {
       try {

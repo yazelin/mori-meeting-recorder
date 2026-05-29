@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useTranslation } from "react-i18next";
 import RecordTab from "./tabs/RecordTab";
 import SessionsTab from "./tabs/SessionsTab";
@@ -10,8 +9,6 @@ import LiveTab from "./tabs/LiveTab";
 import SettingsTab from "./tabs/SettingsTab";
 import SignalPill from "./components/SignalPill";
 import { type LiveSegment } from "./components/LiveColumn";
-
-const CAPTION_LABELS = ["caption-sys", "caption-mic"];
 
 type Tab = "record" | "live" | "sessions" | "deps" | "settings";
 
@@ -51,10 +48,7 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
   const toggleCaptions = async () => {
     const next = !captionsOn;
     setCaptionsOn(next);
-    for (const label of CAPTION_LABELS) {
-      const w = await WebviewWindow.getByLabel(label);
-      if (w) { try { await (next ? w.show() : w.hide()); } catch { /* ignore */ } }
-    }
+    try { await invoke("set_captions", { visible: next }); } catch { /* ignore */ }
   };
 
   return (

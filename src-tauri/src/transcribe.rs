@@ -162,10 +162,25 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &st
         eprintln!("whisper-cli exited {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
         return vec![];
     }
-    // whisper-cli `--output-json-full` 把 JSON 寫到 `<wav>.json`,不是 stdout
+    // whisper-cli `--output-json-full` 把 JSON 寫到 `<wav>.json`,不是 stdout。
+    // ⚠ whisper.cpp 對 CJK 偶爾在 token 邊界切斷多位元組字 → json 含 invalid UTF-8。
+    // 用 read(bytes) + from_utf8_lossy(壞 byte 換 �)別整段丟,還能 parse 出大部分文字。
     let json_path = wav.with_extension("wav.json");
-    let json = match std::fs::read_to_string(&json_path) {
-        Ok(s) => s,
+    let json = match std::fs::read(&json_path) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(e) => {
+                let b = e.as_bytes();
+                let head = &b[..b.len().min(160)];
+                eprintln!(
+                    "[whisper] {} not UTF-8 (len={}); lossy-parsing. head: {:?}",
+                    json_path.display(),
+                    b.len(),
+                    String::from_utf8_lossy(head)
+                );
+                String::from_utf8_lossy(b).into_owned()
+            }
+        },
         Err(e) => {
             eprintln!("read whisper json {}: {e}", json_path.display());
             return vec![];

@@ -13,7 +13,7 @@ use serde::Serialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
-    LogicalSize, Manager, Size,
+    LogicalSize, Manager, Size, WebviewUrl, WebviewWindowBuilder,
 };
 
 #[derive(Debug, Serialize)]
@@ -67,6 +67,51 @@ fn get_config() -> config::RecorderConfig {
 #[tauri::command]
 fn set_config(cfg: config::RecorderConfig) -> Result<(), String> {
     config::write_config(&cfg)
+}
+
+/// 找現有 caption 視窗,沒有就建一個(Rust 端建窗比 JS WebviewWindow.getByLabel 可靠;
+/// 靜態 tauri.conf 定義在某些 Wayland 環境沒被建/show 沒效)。帶 log 方便抓問題。
+fn ensure_caption_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    x: f64,
+) -> Result<tauri::WebviewWindow, String> {
+    if let Some(w) = app.get_webview_window(label) {
+        eprintln!("[captions] {label}: found existing");
+        return Ok(w);
+    }
+    eprintln!("[captions] {label}: not found → creating");
+    WebviewWindowBuilder::new(app, label, WebviewUrl::default())
+        .title(label)
+        .inner_size(360.0, 240.0)
+        .position(x, 90.0)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("{label} build: {e}"))
+}
+
+/// 顯示 / 隱藏兩個浮動字幕視窗。前端 CC 鈕 + 錄音 auto-show 都呼這個。
+#[tauri::command]
+fn set_captions(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
+    for (label, x) in [("caption-sys", 20.0_f64), ("caption-mic", 396.0_f64)] {
+        match ensure_caption_window(&app, label, x) {
+            Ok(w) => {
+                let r = if visible { w.show() } else { w.hide() };
+                eprintln!(
+                    "[captions] {label}: set visible={visible} -> {r:?}; is_visible={:?} pos={:?} size={:?}",
+                    w.is_visible().ok(),
+                    w.outer_position().ok(),
+                    w.inner_size().ok()
+                );
+            }
+            Err(e) => eprintln!("[captions] {label}: {e}"),
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -209,6 +254,7 @@ fn main() {
             deps_check,
             get_config,
             set_config,
+            set_captions,
             set_window_mode,
             list_sessions,
             list_sessions_detailed,
