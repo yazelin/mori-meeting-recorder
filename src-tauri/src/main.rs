@@ -5,6 +5,7 @@ pub mod config;
 pub mod diarize;
 pub mod exporter;
 pub mod manifest;
+pub mod postprocess;
 pub mod recorder;
 pub mod session_store;
 pub mod transcribe;
@@ -363,6 +364,29 @@ fn open_path(_path: &str) -> Result<(), String> {
     Err("unsupported platform".into())
 }
 
+/// 對一場 session 跑分人後處理:讀 meeting-info 人員數 → num_clusters → 每軌 diarize_wav
+/// → assign_speakers → 標回兩軌 jsonl + 寫 speakers.json。
+/// 耗時(實時因子約 0.08x CPU)→ spawn_blocking 不卡 UI(同 recorder_stop 模式)。
+#[tauri::command]
+async fn diarize_session(session_id: String) -> Result<postprocess::DiarizeSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = session_store::default_meetings_dir().join(&session_id);
+        // 讀 meeting-info.json 取人員字串 → participant_count → num_clusters
+        let info = std::fs::read_to_string(root.join("meeting-info.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+        let participants = info
+            .as_ref()
+            .and_then(|v| v.get("participants"))
+            .and_then(|p| p.as_str())
+            .unwrap_or("");
+        let num_clusters = diarize::participant_count(participants);
+        postprocess::diarize_session_inner(&root, num_clusters)
+    })
+    .await
+    .map_err(|e| format!("join diarize_session: {e}"))?
+}
+
 #[allow(dead_code)]
 fn main() {
     tauri::Builder::default()
@@ -437,6 +461,7 @@ fn main() {
             list_sessions,
             list_sessions_detailed,
             open_session_dir,
+            diarize_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
