@@ -161,7 +161,7 @@ fn captions_visible() -> bool {
 fn set_window_mode(window: tauri::Window, mode: String) -> Result<(), String> {
     let (w, h) = match mode.as_str() {
         "collapsed" => (380.0, 44.0),
-        "expanded" => (720.0, 480.0),
+        "expanded" => (720.0, 620.0),
         other => return Err(format!("unknown mode: {other}")),
     };
     window
