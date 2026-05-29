@@ -37,30 +37,40 @@
 **Files:**
 - Create: `docs/superpowers/notes/2026-05-29-diarization-crate-spike.md`(記錄結果)
 
-- [ ] **Step 1: 準備合成雙人測試 WAV**
+**已選定 crate(2026-05-29)**:官方 **`sherpa-onnx`**(crates.io v1.13.x,features `static`/`shared`)。**不是** `sherpa-rs` —— 它已棄用、官方導向這個。spike 任務從「三選一」改為「驗證官方 sherpa-onnx 能 build + GPU + 抄 API」。若實測重疊處理明顯不行,備案 `speakrs`(純 Rust、VBx)。
 
-做一個 16kHz mono 16-bit 的「兩個不同講者接續講」WAV(例:把兩段不同人的語音串起來,或兩個不同 TTS 聲音)。存 `/tmp/diar-2spk.wav`。記下每個講者大概的時間區間(ground truth)。
+- [ ] **Step 1: 跑官方 sherpa-onnx diarization 範例(自帶中文四人音檔,免 TTS)**
 
-- [ ] **Step 2: 逐一評估三個候選 crate**
+```bash
+mkdir -p /tmp/diar && cd /tmp/diar
+curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
+tar xvf sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
+curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx
+curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/0-four-speakers-zh.wav
+# 用官方 rust 範例(crate 內建 example):scratch 專案 `cargo add sherpa-onnx --features static`,
+# 抄 rust-api-examples 的 run-offline-speaker-diarization.sh / examples/offline_speaker_diarization.rs:
+cargo run --example offline_speaker_diarization   # 在 sherpa-onnx 的 rust-api-examples 內
+```
+記錄:Linux 能否 build(`cargo add sherpa-onnx`,onnxruntime 連結痛不痛)、對 `0-four-speakers-zh.wav` 是否正確分出 4 人 + 時間軸合理。
 
-對 `speakrs`、`sherpa-onnx-rs`(k2-fsa 的 Rust API)、`pyannote-rs` 各開一個 scratch crate(或本 repo 的暫時 `examples/diar_spike.rs`),逐一:
-1. `cargo add <crate>`,`cargo build` — 記錄能否在 Linux build(onnxruntime 連結是否痛)。
-2. 抓該 crate 需要的 segmentation + speaker-embedding onnx 模型,放 `~/.mori/models/`。
-3. 對 `/tmp/diar-2spk.wav` 跑 diarization,印出 `(start, end, speaker)` spans。
-4. 記錄:能否吃 GPU(CUDA EP)、span 是否合理分出 2 人且時間對得上 ground truth、模型大小、API 易用度、跨平台(Windows)風險。
+- [ ] **Step 2: 確認 GPU + 我們的音檔 + Windows 風險**
 
-- [ ] **Step 3: 記錄決定**
+1. GPU:確認 sherpa-onnx crate 怎麼開 onnxruntime CUDA EP(feature / config / 環境),在 RTX 4060 跑得動。
+2. 我們的音檔:對「我們 VAD 切出來的 16k mono WAV」(隨便錄一段雙人對話)跑,確認分得出人。
+3. Windows build 風險(onnxruntime 連結、`static` vs `shared`)。
 
-在 spike notes 寫下:選哪個 crate、它的 `diarize_wav` 呼叫形狀(輸入/輸出型別)、需要的模型檔名 + 下載 URL + 大小、GPU 開關方式、Windows 風險。若三個都不行 → 記錄退方案 A(每 VAD clip 一個講者,只需 embedding 模型 + 我們自己分群)。
+- [ ] **Step 3: 抄下 API 形狀(給 Plan B 用)**
 
-- [ ] **Step 4: Commit**
+從 crate 的 `examples/offline_speaker_diarization.rs` 抄真實 API:diarization config struct 名 + 欄位(segmentation/embedding model 路徑、num_clusters/threshold)、執行方法、回傳型別(每段 start/end/speaker)。這就是 Plan B 的 `diarize_wav` 要包的形狀。
+
+- [ ] **Step 4: 記錄決定 + Commit**
 
 ```bash
 git add docs/superpowers/notes/2026-05-29-diarization-crate-spike.md
-git commit -m "docs(diarize): build spike — pick onnx diarization crate"
+git commit -m "docs(diarize): spike — confirm official sherpa-onnx crate API + GPU + models"
 ```
 
-**Gate:** Plan B 不開始,直到本 task 產出「選定的 crate + 其 API 形狀 + 模型來源」。Plan A 的 Task 2–5 不依賴本 task,可平行做。
+**Gate:** Plan B(引擎 `diarize_wav` + `diarize_session` command + 模型 Deps)不開始,直到本 task 產出「sherpa-onnx 能 build + GPU 行 + 確切 diarization API 形狀」。Plan A 的 Task 2–5 不依賴本 task(已完成)。
 
 ---
 
