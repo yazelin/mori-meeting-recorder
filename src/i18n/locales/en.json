@@ -80,7 +80,9 @@
     "found": "✓ found",
     "missing": "✗ missing",
     "recheck": "Re-check",
-    "linux_install": "Linux install command",
+    "download_model": "Download the selected model",
+    "download_model_hint": "Downloads {{file}} into ~/.mori/models/. The full-install below only fetches ggml-small — use this to get large-v3-turbo (or re-fetch any model). Run in a terminal so you can see progress.",
+    "linux_install": "Full install (whisper-cli + small model)",
     "windows_install": "Windows install command",
     "copy": "Copy",
     "copied": "Copied ✓"
