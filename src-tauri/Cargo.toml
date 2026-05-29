@@ -24,8 +24,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
-# 純 Rust 簡→繁(台灣正體)轉換 — 不依賴外部 opencc,bundle 在 binary 內。
-zhconv = "0.3"
+# 純 Rust OpenCC(bundle 官方字典)— 簡→台灣正體,品質對齊 OpenCC,零外部安裝。
+ferrous-opencc = "0.4"
 
 # Linux:libpulse client API(PipeWire 完全相容,看得到 .monitor source)
 [target.'cfg(target_os = "linux")'.dependencies]
