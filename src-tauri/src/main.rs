@@ -187,13 +187,14 @@ fn gpu_status() -> GpuStatus {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
-    // 現在這支 whisper-cli 是不是 GPU build:旁邊有沒有 libggml-cuda.so(CUDA build 才會編出來)。
+    // 現在這支 whisper-cli 是不是 GPU build:旁邊有沒有 CUDA backend lib。
+    // 跨平台:Linux 是 libggml-cuda.so、Windows 是 ggml-cuda.dll → 用 "ggml-cuda" 同時涵蓋。
     let whisper_gpu_build = transcribe::whisper_bin_path()
         .parent()
         .and_then(|dir| std::fs::read_dir(dir).ok())
         .map(|rd| {
             rd.filter_map(|e| e.ok())
-                .any(|e| e.file_name().to_string_lossy().contains("libggml-cuda"))
+                .any(|e| e.file_name().to_string_lossy().contains("ggml-cuda"))
         })
         .unwrap_or(false);
     GpuStatus { gpu_name, cuda_toolkit, whisper_gpu_build }
