@@ -68,9 +68,9 @@ pub fn parse_whisper_json(
     Ok(segs)
 }
 
-use std::io::Write as _;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
+use zhconv::{zhconv, Variant};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -89,40 +89,10 @@ pub fn whisper_model_path() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from(WHISPER_MODEL_FILENAME))
 }
 
-/// 優先找 ~/.mori/bin/opencc;其次嘗試 PATH 上的 opencc。
-/// 不保證 opencc 存在 — 呼叫端用 Option。
-pub fn opencc_bin_path() -> Option<std::path::PathBuf> {
-    if let Some(home) = dirs::home_dir() {
-        let p = home.join(".mori").join("bin").join("opencc");
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    // 嘗試 PATH:直接回 Some("opencc"),spawn 失敗就 None(呼叫端處理)
-    Some(std::path::PathBuf::from("opencc"))
-}
-
-/// 用 opencc 把文字從簡體轉台灣繁體(s2twp.json)。
-/// 任何 spawn / IO 錯誤均回 None,呼叫端保留原文。
-pub fn to_traditional(text: &str) -> Option<String> {
-    let bin = opencc_bin_path()?;
-    let mut child = Command::new(&bin)
-        .args(["-c", "s2twp.json"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    {
-        let stdin = child.stdin.as_mut()?;
-        stdin.write_all(text.as_bytes()).ok()?;
-    }
-    let output = child.wait_with_output().ok()?;
-    if output.status.success() {
-        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    } else {
-        None
-    }
+/// 簡→台灣正體(zh-Hant-TW)。用純 Rust 的 zhconv(MediaWiki 轉換表 + 台灣詞彙),
+/// bundle 在 binary 內 —— 不再依賴外部 opencc 安裝(之前 opencc 沒裝 → 一直是簡體)。
+pub fn to_traditional(text: &str) -> String {
+    zhconv(text, Variant::ZhTW)
 }
 
 /// 只丟「whisper 自己明確標成非語音」的段:整段被括號 / ♪ 包住(SDH 風格的
@@ -213,18 +183,8 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &st
     // 濾掉非語音雜訊 + whisper 靜音幻覺(不再用 -sns —— 那會逼模型把非語音段瞎掰成真詞)。
     segs.retain(|s| !is_noise_segment(&s.text));
     if traditional {
-        // 嘗試 opencc 轉台灣繁體;opencc 不在就略過(graceful)。
-        // 第一次轉失敗時印一次提示(呼叫端 per-segment 失敗各自 None 就略過,不重複 eprintln)。
-        let mut warned = false;
         for s in &mut segs {
-            match to_traditional(&s.text) {
-                Some(t) => s.text = t,
-                None if !warned => {
-                    eprintln!("[mori] opencc not available or failed — Traditional conversion skipped (install opencc to enable)");
-                    warned = true;
-                }
-                None => {}
-            }
+            s.text = to_traditional(&s.text);
         }
     }
     segs
@@ -443,14 +403,12 @@ mod tests {
     }
 
     #[test]
-    fn to_traditional_does_not_panic() {
-        // to_traditional either returns Some(String) (opencc present) or None (absent).
-        // It must never panic regardless of opencc availability.
-        let result = to_traditional("测试文字");
-        // Either None (no opencc) or Some with a non-empty string — never panic.
-        if let Some(s) = result {
-            assert!(!s.is_empty());
-        }
+    fn to_traditional_converts_simplified_to_taiwan() {
+        // zhconv 純 Rust、bundle 在內,簡體一定轉成台灣正體。
+        assert_eq!(to_traditional("测试文字"), "測試文字");
+        assert_eq!(to_traditional("软件"), "軟體"); // 台灣詞彙(非僅字形)
+        // 已是繁體 → 不變
+        assert_eq!(to_traditional("會議記錄"), "會議記錄");
     }
 
     #[test]
