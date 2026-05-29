@@ -696,3 +696,6 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 .setting-field-input::-webkit-inner-spin-button,
 .setting-field-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .setting-field-input { -moz-appearance: textfield; appearance: textfield; text-align: center; }
+
+/* header CC(浮動字幕開關)— icon-btn 裝文字,active 時橘色 */
+.icon-btn.active { color: var(--accent); background: var(--btn-bg); }

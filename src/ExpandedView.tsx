@@ -1,13 +1,17 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useTranslation } from "react-i18next";
 import RecordTab from "./tabs/RecordTab";
 import SessionsTab from "./tabs/SessionsTab";
 import DepsTab from "./tabs/DepsTab";
 import LiveTab from "./tabs/LiveTab";
 import SettingsTab from "./tabs/SettingsTab";
+import SignalPill from "./components/SignalPill";
 import { type LiveSegment } from "./components/LiveColumn";
+
+const CAPTION_LABELS = ["caption-sys", "caption-mic"];
 
 type Tab = "record" | "live" | "sessions" | "deps" | "settings";
 
@@ -28,11 +32,12 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("record");
 
-  // 常駐錄音狀態 — 任何分頁(含 Live)的 header 都看得到狀態 + 時間。
-  const [rec, setRec] = useState<{ state: string; elapsed_secs: number }>({ state: "idle", elapsed_secs: 0 });
+  // 常駐錄音狀態 — 任何分頁(含 Live)的 header 都看得到狀態 + 時間 + SYS/MIC 訊號。
+  type Status = { state: string; elapsed_secs: number; system_signal: boolean; mic_signal: boolean };
+  const [rec, setRec] = useState<Status>({ state: "idle", elapsed_secs: 0, system_signal: false, mic_signal: false });
   useEffect(() => {
     const tick = async () => {
-      try { setRec(await invoke<{ state: string; elapsed_secs: number }>("recorder_status")); }
+      try { setRec(await invoke<Status>("recorder_status")); }
       catch { /* ignore */ }
     };
     tick();
@@ -40,6 +45,17 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
     return () => clearInterval(id);
   }, []);
   const recLabel = rec.state === "recording" ? "REC" : rec.state === "transcribing" ? t("capsule.transcribing") : "idle";
+
+  // 浮動字幕視窗手動開關(不靠錄音 auto-show);也當「視窗到底出不出得來」的診斷。
+  const [captionsOn, setCaptionsOn] = useState(false);
+  const toggleCaptions = async () => {
+    const next = !captionsOn;
+    setCaptionsOn(next);
+    for (const label of CAPTION_LABELS) {
+      const w = await WebviewWindow.getByLabel(label);
+      if (w) { try { await (next ? w.show() : w.hide()); } catch { /* ignore */ } }
+    }
+  };
 
   return (
     <div id="view-expanded" style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
@@ -61,10 +77,17 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
         </button>
         <span style={{ flex: 1 }} />
         <span className="exp-status">
+          <SignalPill kind="sys" active={rec.system_signal} />
+          <SignalPill kind="mic" active={rec.mic_signal} />
           <span className={`capsule-dot ${rec.state}`} />
           <span className={`exp-status-label ${rec.state}`}>{recLabel}</span>
           <span className="exp-status-time">{fmtElapsed(rec.elapsed_secs)}</span>
         </span>
+        <button
+          className={`icon-btn ${captionsOn ? "active" : ""}`}
+          onClick={toggleCaptions}
+          title={captionsOn ? "hide caption windows" : "show caption windows"}
+        >CC</button>
         <button className="icon-btn" onClick={onCollapse} title="collapse">▴</button>
       </div>
       <div className="expanded-body" style={{ flex: 1 }}>
