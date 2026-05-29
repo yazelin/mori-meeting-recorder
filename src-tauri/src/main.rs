@@ -591,6 +591,41 @@ async fn reexport_session(session_id: String) -> Result<(), String> {
     .map_err(|e| format!("join reexport_session: {e}"))?
 }
 
+// ── C3: 分人修正 command ────────────────────────────────────────────────────────
+
+/// 合併講者:把 merge_ids 的段全改成 keep_id(兩軌)+ 從 speakers.json 移除 merge_ids。
+#[tauri::command]
+fn merge_speakers(session_id: String, keep_id: String, merge_ids: Vec<String>) -> Result<(), String> {
+    let root = session_store::default_meetings_dir().join(&session_id);
+    for jsonl_rel in ["transcript/system.segments.jsonl", "transcript/mic-internal.segments.jsonl"] {
+        let path = root.join(jsonl_rel);
+        let segs = transcribe::read_segments_jsonl(&path);
+        if segs.is_empty() {
+            continue;
+        }
+        let relabeled = postprocess::relabel_merge(segs, &keep_id, &merge_ids);
+        transcribe::write_segments_jsonl(&path, &relabeled)?;
+    }
+    let sp_path = root.join("transcript").join("speakers.json");
+    let kept = postprocess::drop_speakers(diarize::read_speakers(&sp_path), &merge_ids);
+    diarize::write_speakers(&sp_path, &kept)
+}
+
+/// 逐段改講者:把指定 track 的 seg_id 那段 speaker 設成 speaker_id。
+#[tauri::command]
+fn set_segment_speaker(session_id: String, track: String, seg_id: String, speaker_id: String) -> Result<(), String> {
+    let root = session_store::default_meetings_dir().join(&session_id);
+    let jsonl_rel = match track.as_str() {
+        "system" => "transcript/system.segments.jsonl",
+        "mic-internal" => "transcript/mic-internal.segments.jsonl",
+        other => return Err(format!("unknown track: {other}")),
+    };
+    let path = root.join(jsonl_rel);
+    let segs = transcribe::read_segments_jsonl(&path);
+    let relabeled = postprocess::relabel_one(segs, &seg_id, &speaker_id);
+    transcribe::write_segments_jsonl(&path, &relabeled)
+}
+
 /// 對一場 session 跑分人後處理:讀 meeting-info 人員數 → num_clusters → 每軌 diarize_wav
 /// → assign_speakers → 標回兩軌 jsonl + 寫 speakers.json。
 /// 耗時(實時因子約 0.08x CPU)→ spawn_blocking 不卡 UI(同 recorder_stop 模式)。
@@ -699,6 +734,9 @@ fn main() {
             read_meeting_info,
             set_meeting_info_for,
             reexport_session,
+            // C3: diarization correction commands
+            merge_speakers,
+            set_segment_speaker,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
