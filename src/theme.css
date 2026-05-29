@@ -602,3 +602,17 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
   color: var(--text-dim); flex-shrink: 0; padding-top: 1px;
 }
 .live-text { color: var(--text); }
+
+/* Settings 參數列 */
+.setting-field { margin-bottom: 14px; }
+.setting-field-row { display: flex; align-items: center; gap: 8px; }
+.setting-field-label { font-size: 12px; color: var(--text); min-width: 140px; }
+.setting-field-input {
+  width: 70px; padding: 4px 8px; font-size: 12px;
+  background: var(--btn-bg); color: var(--text);
+  border: 0.5px solid var(--border); border-radius: 6px;
+  font-family: ui-monospace, monospace;
+}
+.setting-field-unit { font-size: 11px; color: var(--text-secondary); }
+.setting-field-default { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+.setting-field-hint { font-size: 10.5px; color: var(--text-dim); margin-top: 3px; line-height: 1.4; }
