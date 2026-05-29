@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import RecordTab from "./tabs/RecordTab";
@@ -18,9 +19,27 @@ const startDragOnMouseDown = (e: React.MouseEvent) => {
   getCurrentWindow().startDragging().catch(() => {});
 };
 
+const fmtElapsed = (s: number) => {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+};
+
 export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onCollapse: () => void; liveSys: LiveSegment[]; liveMic: LiveSegment[] }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("record");
+
+  // 常駐錄音狀態 — 任何分頁(含 Live)的 header 都看得到狀態 + 時間。
+  const [rec, setRec] = useState<{ state: string; elapsed_secs: number }>({ state: "idle", elapsed_secs: 0 });
+  useEffect(() => {
+    const tick = async () => {
+      try { setRec(await invoke<{ state: string; elapsed_secs: number }>("recorder_status")); }
+      catch { /* ignore */ }
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, []);
+  const recLabel = rec.state === "recording" ? "REC" : rec.state === "transcribing" ? t("capsule.transcribing") : "idle";
 
   return (
     <div id="view-expanded" style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
@@ -41,6 +60,11 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
           {t("tabs.settings")}
         </button>
         <span style={{ flex: 1 }} />
+        <span className="exp-status">
+          <span className={`capsule-dot ${rec.state}`} />
+          <span className={`exp-status-label ${rec.state}`}>{recLabel}</span>
+          <span className="exp-status-time">{fmtElapsed(rec.elapsed_secs)}</span>
+        </span>
         <button className="icon-btn" onClick={onCollapse} title="collapse">▴</button>
       </div>
       <div className="expanded-body" style={{ flex: 1 }}>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./theme.css";
 import "./i18n";
 import CapsuleView from "./CapsuleView";
@@ -13,6 +14,8 @@ interface LiveSegmentEvent {
   track: "sys" | "mic";
   segment: { session_id: string; start_ms: number; text: string };
 }
+
+const CAPTION_LABELS = ["caption-sys", "caption-mic"];
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("collapsed");
@@ -43,6 +46,31 @@ export default function App() {
       });
     })();
     return () => { unlisten?.(); };
+  }, []);
+
+  // 浮動字幕視窗(caption-sys / caption-mic):錄音開始 show、停止 hide。
+  // App 常駐,polling recorder_status 偵測 recording 轉換,只在轉換點動作(不每 tick 重複)。
+  const wasRecording = useRef(false);
+  useEffect(() => {
+    const setCaptionVisible = async (visible: boolean) => {
+      for (const label of CAPTION_LABELS) {
+        const w = await WebviewWindow.getByLabel(label);
+        if (!w) continue;
+        try { await (visible ? w.show() : w.hide()); } catch { /* ignore */ }
+      }
+    };
+    const tick = async () => {
+      try {
+        const s = await invoke<{ state: string }>("recorder_status");
+        const rec = s.state === "recording";
+        if (rec !== wasRecording.current) {
+          wasRecording.current = rec;
+          await setCaptionVisible(rec);
+        }
+      } catch { /* ignore */ }
+    };
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
   }, []);
 
   const switchMode = async (next: Mode) => {
