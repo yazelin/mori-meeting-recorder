@@ -26,6 +26,8 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 # 純 Rust OpenCC(bundle 官方字典)— 簡→台灣正體,品質對齊 OpenCC,零外部安裝。
 ferrous-opencc = "0.4"
+# 共享 whisper-server 的 HTTP client(localhost only,免 TLS)— 健康檢查 GET / + POST /inference。
+ureq = { version = "2", default-features = false }
 
 # Linux:libpulse client API(PipeWire 完全相容,看得到 .monitor source)
 [target.'cfg(target_os = "linux")'.dependencies]

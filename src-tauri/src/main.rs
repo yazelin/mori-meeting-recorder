@@ -7,6 +7,7 @@ pub mod manifest;
 pub mod recorder;
 pub mod session_store;
 pub mod transcribe;
+pub mod whisper_discovery;
 
 use recorder::{instance as recorder_instance, RecorderStatus};
 use serde::Serialize;
