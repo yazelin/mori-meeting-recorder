@@ -14,6 +14,35 @@ pub struct DiarizeSummary {
     pub num_segments: usize,
 }
 
+// ── 純 relabel helpers(合併 / 逐段改 / 濾出) ────────────────────────────────
+
+/// 把 speaker ∈ merge_ids 的段改成 keep_id(合併講者),其餘不動。
+pub fn relabel_merge(mut segs: Vec<Segment>, keep_id: &str, merge_ids: &[String]) -> Vec<Segment> {
+    for s in &mut segs {
+        if let Some(spk) = &s.speaker {
+            if merge_ids.iter().any(|m| m == spk) {
+                s.speaker = Some(keep_id.to_string());
+            }
+        }
+    }
+    segs
+}
+
+/// 把 id == seg_id 的段 speaker 設成 speaker_id(逐段改講者)。
+pub fn relabel_one(mut segs: Vec<Segment>, seg_id: &str, speaker_id: &str) -> Vec<Segment> {
+    for s in &mut segs {
+        if s.id == seg_id {
+            s.speaker = Some(speaker_id.to_string());
+        }
+    }
+    segs
+}
+
+/// 從 speakers 清單濾掉 drop_ids(合併後移除被併走的講者列)。
+pub fn drop_speakers(list: Vec<SpeakerInfo>, drop_ids: &[String]) -> Vec<SpeakerInfo> {
+    list.into_iter().filter(|s| !drop_ids.iter().any(|d| d == &s.id)).collect()
+}
+
 /// 把標好的 segments 原子寫回各軌 jsonl + 寫 speakers.json。純檔案操作,可單測(不碰引擎/模型)。
 pub fn write_labeled_tracks(
     session_root: &std::path::Path,
@@ -150,6 +179,50 @@ pub fn reexport_session(session_root: &std::path::Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::transcribe::read_segments_jsonl;
+
+    fn seg_with(id: &str, track: &str, speaker: Option<&str>) -> Segment {
+        Segment {
+            id: id.into(), session_id: "m".into(), track: track.into(),
+            source_kind: if track == "system" { "meeting_system".into() } else { "mic_internal".into() },
+            visibility: "public".into(), start_ms: 0, end_ms: 1000, text: "x".into(),
+            is_final: true, confidence: None,
+            speaker: speaker.map(|s| s.to_string()), speaker_mixed: false,
+        }
+    }
+
+    #[test]
+    fn relabel_merge_reassigns_merge_ids_to_keep() {
+        let segs = vec![
+            seg_with("a", "system", Some("S1")),
+            seg_with("b", "system", Some("S3")),
+            seg_with("c", "system", Some("S2")),
+            seg_with("d", "system", None),
+        ];
+        let out = relabel_merge(segs, "S1", &["S3".to_string()]);
+        assert_eq!(out[0].speaker.as_deref(), Some("S1")); // 本來就是 keep,不動
+        assert_eq!(out[1].speaker.as_deref(), Some("S1")); // S3 → S1
+        assert_eq!(out[2].speaker.as_deref(), Some("S2")); // 不在 merge 清單,不動
+        assert_eq!(out[3].speaker, None);                   // None 不動
+    }
+
+    #[test]
+    fn relabel_one_only_changes_matching_seg_id() {
+        let segs = vec![seg_with("a", "system", Some("S1")), seg_with("b", "system", Some("S1"))];
+        let out = relabel_one(segs, "b", "S2");
+        assert_eq!(out[0].speaker.as_deref(), Some("S1"));
+        assert_eq!(out[1].speaker.as_deref(), Some("S2"));
+    }
+
+    #[test]
+    fn drop_speakers_filters_listed_ids() {
+        let list = vec![
+            SpeakerInfo { id: "S1".into(), display: "甲".into(), track: "system".into() },
+            SpeakerInfo { id: "S3".into(), display: "乙".into(), track: "system".into() },
+        ];
+        let out = drop_speakers(list, &["S3".to_string()]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "S1");
+    }
 
     fn make_seg(track: &str, speaker: Option<&str>) -> Segment {
         Segment {
