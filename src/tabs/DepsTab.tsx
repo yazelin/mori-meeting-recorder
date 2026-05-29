@@ -77,6 +77,9 @@ export default function DepsTab() {
         </span>
         <code>{gpu?.gpu_name ?? t("deps.gpu_none")}</code>
       </div>
+      {gpu?.whisper_gpu_build && (
+        <p style={{ fontSize: 10.5, color: "var(--found-color)", margin: "6px 0" }}>{t("deps.gpu_on_hint")}</p>
+      )}
       {gpu && gpu.gpu_name && !gpu.whisper_gpu_build && gpu.is_windows && (
         <>
           <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "6px 0" }}>{t("deps.gpu_steps_win")}</p>
