@@ -90,6 +90,7 @@
     "gpu_on": "啟用(GPU build)",
     "gpu_off": "未啟用(CPU build)",
     "gpu_none": "未偵測到 NVIDIA GPU",
+    "gpu_on_hint": "轉錄會自動用你的 GPU 跑 —— 不必另外開 nvidia-smi 確認。",
     "gpu_steps_cuda": "偵測到 NVIDIA GPU,但缺 CUDA toolkit。先跑 ① 裝 CUDA,再跑 ② 重建 whisper-cli(會自動用 GPU 編)→ turbo 就會吃 GPU。",
     "gpu_steps_rebuild": "已有 CUDA toolkit。跑下面重建 whisper-cli(會自動用 GPU 編)→ turbo 就會吃 GPU。",
     "gpu_steps_win": "偵測到 NVIDIA GPU,但現在是 CPU 版。跑下面重新安裝 → 會自動抓 cuBLAS(GPU)版(自帶 CUDA runtime,免裝 toolkit)→ turbo 就會吃 GPU。",

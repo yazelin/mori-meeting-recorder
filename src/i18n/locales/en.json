@@ -90,6 +90,7 @@
     "gpu_on": "enabled (GPU build)",
     "gpu_off": "off (CPU build)",
     "gpu_none": "no NVIDIA GPU detected",
+    "gpu_on_hint": "Transcription runs on your GPU automatically — no need to check with nvidia-smi.",
     "gpu_steps_cuda": "NVIDIA GPU detected but CUDA toolkit is missing. Run ① to install CUDA, then ② to rebuild whisper-cli (auto-builds with GPU) — turbo will then run on the GPU.",
     "gpu_steps_rebuild": "CUDA toolkit present. Run the command below to rebuild whisper-cli (auto-builds with GPU) — turbo will then run on the GPU.",
     "gpu_steps_win": "NVIDIA GPU detected but this is the CPU build. Run the command below to reinstall — it auto-grabs the cuBLAS (GPU) build (bundles the CUDA runtime, no toolkit needed) — turbo will then run on the GPU.",
