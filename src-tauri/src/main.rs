@@ -60,6 +60,16 @@ fn deps_check() -> DepsCheck {
 }
 
 #[tauri::command]
+fn get_config() -> config::RecorderConfig {
+    config::read_config()
+}
+
+#[tauri::command]
+fn set_config(cfg: config::RecorderConfig) -> Result<(), String> {
+    config::write_config(&cfg)
+}
+
+#[tauri::command]
 fn set_window_mode(window: tauri::Window, mode: String) -> Result<(), String> {
     let (w, h) = match mode.as_str() {
         "collapsed" => (380.0, 44.0),
@@ -197,6 +207,8 @@ fn main() {
             recorder_stop,
             recorder_status,
             deps_check,
+            get_config,
+            set_config,
             set_window_mode,
             list_sessions,
             list_sessions_detailed,

@@ -7,7 +7,6 @@ use crate::transcribe::{Segment};
 use tauri::Emitter;
 use chrono::{DateTime, Local};
 use serde::Serialize;
-use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
@@ -23,6 +22,7 @@ pub struct ActiveSession {
     pub store: SessionStore,
     pub started_at: DateTime<Local>,
     pub handles: Vec<CaptureHandle>,
+    pub workers: Vec<crate::transcribe::TranscribeWorker>,
 }
 
 pub struct Recorder {
@@ -92,11 +92,45 @@ impl Recorder {
         let session_id = new_session_id(now);
         let store = SessionStore::create(&session_id, &default_meetings_dir())?;
 
+        let cfg = crate::config::read_config();
+        let vad_cfg = crate::audio::vad::VadConfig {
+            silence_split_ms: cfg.silence_split_ms,
+            silence_threshold_db: cfg.silence_threshold_db,
+            min_speech_secs: cfg.min_speech_secs,
+            max_segment_secs: cfg.max_segment_secs,
+        };
+
         let mut handles = Vec::new();
+        let mut workers = Vec::new();
         for kind in [SourceKind::MeetingSystem, SourceKind::MicInternal] {
             let out = store.audio_path(kind);
-            match audio::open_capture(kind, out) {
-                Ok(h) => handles.push(h),
+            match audio::open_capture(kind, out, vad_cfg.clone()) {
+                Ok((h, rx)) => {
+                    // 前端 LiveTab 用 "sys"/"mic" 兩欄(不是 track_name 的 system/mic-internal)
+                    let track = match kind {
+                        SourceKind::MeetingSystem => "sys",
+                        SourceKind::MicInternal => "mic",
+                    };
+                    let jsonl = store.segments_path(kind);
+                    let sid = session_id.clone();
+                    let app_for_worker = app.clone();
+                    let worker = crate::transcribe::spawn_transcribe_worker(
+                        rx,
+                        sid,
+                        kind,
+                        jsonl,
+                        move |segs| {
+                            for s in segs {
+                                let _ = app_for_worker.emit(
+                                    "live-segment",
+                                    serde_json::json!({ "track": track, "segment": s }),
+                                );
+                            }
+                        },
+                    );
+                    handles.push(h);
+                    workers.push(worker);
+                }
                 Err(e) => eprintln!("warning: open_capture {:?} failed: {e}", kind),
             }
         }
@@ -108,6 +142,7 @@ impl Recorder {
             store,
             started_at: now,
             handles,
+            workers,
         });
         *self.state.lock().map_err(|e| e.to_string())? = State::Recording;
 
@@ -149,39 +184,25 @@ impl Recorder {
         let store = session.store;
         let started_at = session.started_at;
 
-        // 停 capture
+        // 1. 停 capture:stop_flag → capture thread flush VadChunker → 送最後段 → drop Sender。
         for h in &session.handles {
             h.stop_flag.store(true, Ordering::Relaxed);
         }
         for h in session.handles {
             let _ = h.writer_handle.join();
         }
-
-        // 轉錄 — parallel
-        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("tokio rt: {e}"))?;
-        let segs_result: Result<(Vec<Segment>, Vec<Segment>), String> = rt.block_on(async {
-            let sys_path = store.audio_path(SourceKind::MeetingSystem);
-            let mic_path = store.audio_path(SourceKind::MicInternal);
-            let sys_id = session_id.clone();
-            let mic_id = session_id.clone();
-            let (sys, mic) = tokio::join!(
-                tokio::task::spawn_blocking(move || {
-                    crate::transcribe::run_whisper(&sys_path, &sys_id, SourceKind::MeetingSystem)
-                }),
-                tokio::task::spawn_blocking(move || {
-                    crate::transcribe::run_whisper(&mic_path, &mic_id, SourceKind::MicInternal)
-                }),
-            );
-            Ok((
-                sys.map_err(|e| format!("join sys: {e}"))?,
-                mic.map_err(|e| format!("join mic: {e}"))?,
-            ))
-        });
-        let (sys_segs, mic_segs) = segs_result?;
-
-        // 寫 segments JSONL
-        write_segments_jsonl(&store.segments_path(SourceKind::MeetingSystem), &sys_segs)?;
-        write_segments_jsonl(&store.segments_path(SourceKind::MicInternal), &mic_segs)?;
+        // 2. capture thread 已 drop Sender → 各 worker recv() 收到 Err → loop 結束。
+        //    join 等 worker 把佇列裡剩餘的段轉完(jsonl 已由 worker 即時 append)。
+        for w in session.workers {
+            let _ = w.handle.join();
+        }
+        // 3. 讀回兩軌 jsonl 彙整(不再 stop 時 batch 轉整檔)。
+        let sys_segs = crate::transcribe::read_segments_jsonl(
+            &store.segments_path(SourceKind::MeetingSystem),
+        );
+        let mic_segs = crate::transcribe::read_segments_jsonl(
+            &store.segments_path(SourceKind::MicInternal),
+        );
 
         // 匯出
         let stopped_at = Local::now();
@@ -265,17 +286,6 @@ impl Recorder {
     }
 }
 
-fn write_segments_jsonl(path: &PathBuf, segs: &[Segment]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
-    }
-    let lines: Vec<String> = segs
-        .iter()
-        .map(|s| serde_json::to_string(s).map_err(|e| e.to_string()))
-        .collect::<Result<_, _>>()?;
-    std::fs::write(path, lines.join("\n") + "\n").map_err(|e| format!("write segs: {e}"))?;
-    Ok(())
-}
 
 pub static RECORDER: std::sync::OnceLock<Arc<Recorder>> = std::sync::OnceLock::new();
 
