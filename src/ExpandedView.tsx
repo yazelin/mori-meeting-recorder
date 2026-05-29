@@ -6,6 +6,7 @@ import SessionsTab from "./tabs/SessionsTab";
 import DepsTab from "./tabs/DepsTab";
 import LiveTab from "./tabs/LiveTab";
 import SettingsTab from "./tabs/SettingsTab";
+import { type LiveSegment } from "./components/LiveColumn";
 
 type Tab = "record" | "live" | "sessions" | "deps" | "settings";
 
@@ -17,7 +18,7 @@ const startDragOnMouseDown = (e: React.MouseEvent) => {
   getCurrentWindow().startDragging().catch(() => {});
 };
 
-export default function ExpandedView({ onCollapse }: { onCollapse: () => void }) {
+export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onCollapse: () => void; liveSys: LiveSegment[]; liveMic: LiveSegment[] }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("record");
 
@@ -44,7 +45,7 @@ export default function ExpandedView({ onCollapse }: { onCollapse: () => void })
       </div>
       <div className="expanded-body" style={{ flex: 1 }}>
         {tab === "record" && <RecordTab />}
-        {tab === "live" && <LiveTab />}
+        {tab === "live" && <LiveTab sys={liveSys} mic={liveMic} />}
         {tab === "sessions" && <SessionsTab />}
         {tab === "deps" && <DepsTab />}
         {tab === "settings" && <SettingsTab />}
