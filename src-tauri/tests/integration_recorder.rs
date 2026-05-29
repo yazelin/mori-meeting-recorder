@@ -22,6 +22,8 @@ fn fake_seg(kind: SourceKind, idx: u64, text: &str) -> Segment {
         text: text.into(),
         is_final: true,
         confidence: None,
+        speaker: None,
+        speaker_mixed: false,
     }
 }
 

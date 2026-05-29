@@ -17,6 +17,10 @@ pub struct Segment {
     pub is_final: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f64>,
+    #[serde(default)]
+    pub speaker: Option<String>,
+    #[serde(default)]
+    pub speaker_mixed: bool,
 }
 
 /// 把 whisper.cpp `--output-json-full` 解析成 Segments。
@@ -63,6 +67,8 @@ pub fn parse_whisper_json(
             text: r.text.trim().to_string(),
             is_final: true,
             confidence: r.confidence,
+            speaker: None,
+            speaker_mixed: false,
         })
         .collect();
     Ok(segs)
@@ -216,6 +222,8 @@ fn parse_server_json(
         text,
         is_final: true,
         confidence: None,
+        speaker: None,
+        speaker_mixed: false,
     }))
 }
 
@@ -471,6 +479,8 @@ mod tests {
             text: "hi".into(),
             is_final: true,
             confidence: None,
+            speaker: None,
+            speaker_mixed: false,
         }
     }
 
@@ -677,5 +687,14 @@ mod tests {
         assert_eq!(r.spec().bits_per_sample, 16);
         let read_back: Vec<i16> = r.samples::<i16>().map(|s| s.unwrap()).collect();
         assert_eq!(read_back, signal);
+    }
+
+    #[test]
+    fn segment_speaker_fields_default_when_absent() {
+        // 舊 jsonl(沒有 speaker / speaker_mixed)要能反序列化,欄位回預設
+        let line = r#"{"id":"s1","session_id":"x","track":"system","source_kind":"meeting_system","visibility":"public","start_ms":0,"end_ms":1000,"text":"hi","is_final":true}"#;
+        let s: Segment = serde_json::from_str(line).unwrap();
+        assert_eq!(s.speaker, None);
+        assert!(!s.speaker_mixed);
     }
 }

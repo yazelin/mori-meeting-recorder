@@ -103,6 +103,8 @@ mod tests {
             text: text.into(),
             is_final: true,
             confidence: None,
+            speaker: None,
+            speaker_mixed: false,
         }
     }
 
