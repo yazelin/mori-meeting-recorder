@@ -79,6 +79,19 @@ fn set_meeting_info(topic: String, participants: String) -> Result<(), String> {
     recorder_instance().set_meeting_info(topic, participants)
 }
 
+#[tauri::command]
+fn voice_input_start() -> Result<(), String> {
+    recorder_instance().voice_input_start()
+}
+
+#[tauri::command]
+async fn voice_input_stop() -> Result<String, String> {
+    // whisper 轉錄是 blocking → spawn_blocking 不卡 UI(同 recorder_stop)
+    tauri::async_runtime::spawn_blocking(|| recorder_instance().voice_input_stop())
+        .await
+        .map_err(|e| format!("join voice: {e}"))?
+}
+
 /// 找現有 caption 視窗,沒有就建一個(Rust 端建窗比 JS WebviewWindow.getByLabel 可靠;
 /// 靜態 tauri.conf 定義在某些 Wayland 環境沒被建/show 沒效)。帶 log 方便抓問題。
 fn ensure_caption_window(app: &tauri::AppHandle, label: &str) -> Result<tauri::WebviewWindow, String> {
@@ -291,6 +304,8 @@ fn main() {
             get_config,
             set_config,
             set_meeting_info,
+            voice_input_start,
+            voice_input_stop,
             set_captions,
             captions_visible,
             set_window_mode,

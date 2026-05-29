@@ -30,7 +30,9 @@
     "topic": "本場主題",
     "topic_ph": "這場會議的主題",
     "participants": "參與者",
-    "participants_ph": "有誰在場(一行一位或用逗號分隔)"
+    "participants_ph": "有誰在場(一行一位或用逗號分隔)",
+    "voice_input": "語音輸入",
+    "voice_stop": "錄音中,點擊停止"
   },
   "sessions": {
     "title": "Session 列表",

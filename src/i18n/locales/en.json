@@ -30,7 +30,9 @@
     "topic": "Topic",
     "topic_ph": "This meeting's topic",
     "participants": "Participants",
-    "participants_ph": "Who's here (one per line or comma-separated)"
+    "participants_ph": "Who's here (one per line or comma-separated)",
+    "voice_input": "Voice input",
+    "voice_stop": "Recording — click to stop"
   },
   "sessions": {
     "title": "Sessions",

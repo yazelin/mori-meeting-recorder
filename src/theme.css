@@ -734,3 +734,17 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 .mi-input::placeholder { color: var(--text-muted); }
 .mi-input:focus { outline: none; border-color: var(--accent-dim); }
 .mi-textarea { min-height: 44px; line-height: 1.5; }
+
+/* 語音輸入按鈕(主題/參與者欄旁) */
+.mi-input-row { display: flex; gap: 6px; align-items: flex-start; }
+.mi-input-row .mi-input { flex: 1; min-width: 0; }
+.mi-voice {
+  flex-shrink: 0; width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--btn-bg); color: var(--text-secondary);
+  border: 0.5px solid var(--border); border-radius: 8px; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mi-voice:hover { background: var(--btn-bg-hover); color: var(--text); }
+.mi-voice:disabled { opacity: 0.35; cursor: not-allowed; }
+.mi-voice.rec { background: var(--danger-color); color: #fff; animation: dot-pulse 1.2s ease-in-out infinite; }

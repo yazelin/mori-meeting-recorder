@@ -40,6 +40,44 @@ export default function RecordTab() {
   const [participants, setParticipants] = useState("");
   const saveInfo = () => { invoke("set_meeting_info", { topic, participants }).catch(() => {}); };
 
+  // 語音輸入:點 mic → 錄麥克風;再點 → whisper 轉錄、把文字接到欄位(append,可再打字修)。
+  const [voiceField, setVoiceField] = useState<null | "topic" | "participants">(null);
+  const toggleVoice = async (field: "topic" | "participants") => {
+    if (voiceField === field) {
+      setVoiceField(null);
+      try {
+        const text = await invoke<string>("voice_input_stop");
+        if (text) {
+          if (field === "topic") {
+            const nv = (topic ? topic + " " : "") + text;
+            setTopic(nv);
+            invoke("set_meeting_info", { topic: nv, participants }).catch(() => {});
+          } else {
+            const nv = (participants ? participants + "\n" : "") + text;
+            setParticipants(nv);
+            invoke("set_meeting_info", { topic, participants: nv }).catch(() => {});
+          }
+        }
+      } catch (e) { console.error(e); }
+    } else if (voiceField === null) {
+      try { await invoke("voice_input_start"); setVoiceField(field); } catch (e) { console.error(e); }
+    }
+  };
+  const voiceBtn = (field: "topic" | "participants") => (
+    <button
+      className={`mi-voice ${voiceField === field ? "rec" : ""}`}
+      onClick={() => toggleVoice(field)}
+      disabled={voiceField !== null && voiceField !== field}
+      title={t(voiceField === field ? "record.voice_stop" : "record.voice_input")}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="2" width="6" height="11" rx="3" />
+        <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
+        <line x1="12" y1="19" x2="12" y2="22" />
+      </svg>
+    </button>
+  );
+
   // status polling (500ms) — 兼當 levels polling fallback
   useEffect(() => {
     const tick = async () => {
@@ -135,24 +173,30 @@ export default function RecordTab() {
       <div className="meeting-info">
         <div className="mi-field">
           <label className="mi-label">{t("record.topic")}</label>
-          <input
-            className="mi-input"
-            value={topic}
-            placeholder={t("record.topic_ph")}
-            onChange={(e) => setTopic(e.target.value)}
-            onBlur={saveInfo}
-          />
+          <div className="mi-input-row">
+            <input
+              className="mi-input"
+              value={topic}
+              placeholder={t("record.topic_ph")}
+              onChange={(e) => setTopic(e.target.value)}
+              onBlur={saveInfo}
+            />
+            {voiceBtn("topic")}
+          </div>
         </div>
         <div className="mi-field">
           <label className="mi-label">{t("record.participants")}</label>
-          <textarea
-            className="mi-input mi-textarea"
-            value={participants}
-            placeholder={t("record.participants_ph")}
-            onChange={(e) => setParticipants(e.target.value)}
-            onBlur={saveInfo}
-            rows={2}
-          />
+          <div className="mi-input-row">
+            <textarea
+              className="mi-input mi-textarea"
+              value={participants}
+              placeholder={t("record.participants_ph")}
+              onChange={(e) => setParticipants(e.target.value)}
+              onBlur={saveInfo}
+              rows={2}
+            />
+            {voiceBtn("participants")}
+          </div>
         </div>
       </div>
 
