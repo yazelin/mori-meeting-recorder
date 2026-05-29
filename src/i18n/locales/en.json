@@ -10,7 +10,9 @@
   "tabs": {
     "record": "Record",
     "sessions": "Sessions",
-    "deps": "Deps"
+    "deps": "Deps",
+    "live": "Live",
+    "settings": "Settings"
   },
   "record": {
     "start_button": "Start recording",
@@ -27,6 +29,27 @@
     "title": "Sessions",
     "hint": "Read-only. Click a row to open its folder.",
     "empty": "No sessions yet."
+  },
+  "live": {
+    "empty": "Live captions will appear here once recording starts.",
+    "pending": "transcribing… ({{n}} pending)",
+    "col_sys": "Meeting audio (SYS)",
+    "col_mic": "Mic-internal (MIC)"
+  },
+  "settings": {
+    "title": "Transcribe parameters",
+    "silence_split": "Silence split threshold",
+    "silence_split_hint": "How long a pause counts as a sentence break. Lower = snappier captions but more fragments.",
+    "silence_threshold": "Silence volume threshold",
+    "silence_threshold_hint": "Below this volume is treated as silence.",
+    "min_speech": "Minimum speech length",
+    "min_speech_hint": "Sounds shorter than this (noise) are not transcribed.",
+    "max_segment": "Max segment length",
+    "max_segment_hint": "Force a cut after speaking continuously this long.",
+    "default": "default {{v}}",
+    "reset": "Reset defaults",
+    "save": "Save",
+    "saved": "Saved — takes effect next recording"
   },
   "deps": {
     "title": "Dependency check",
