@@ -70,6 +70,8 @@ pub fn parse_whisper_json(
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 const WHISPER_BIN: &str = "whisper-cli";
 const WHISPER_MODEL_FILENAME: &str = "ggml-small.bin";
@@ -165,6 +167,60 @@ pub fn append_segments_jsonl(path: &std::path::Path, segs: &[Segment]) -> Result
         writeln!(f, "{line}").map_err(|e| format!("write jsonl: {e}"))?;
     }
     Ok(())
+}
+
+/// 寫一個 16kHz mono 16-bit WAV(複用 TrackWriter)— transcribe worker 寫 temp 段檔用。
+fn write_wav_16k_mono(path: &Path, samples: &[i16]) -> Result<(), String> {
+    let mut w = crate::audio::writer::TrackWriter::create(path)?;
+    w.push_samples(samples)?;
+    w.finalize()
+}
+
+/// 背景 transcribe worker — 從 channel 收 SpeechSegment,跑 whisper,append jsonl + emit。
+pub struct TranscribeWorker {
+    pub handle: std::thread::JoinHandle<()>,
+    pub pending: Arc<AtomicUsize>,
+}
+
+/// 啟一個 worker。speech_rx 來自 open_capture 回傳的 tuple;每段轉完呼 on_segment(&segments) 給呼叫端 emit。
+pub fn spawn_transcribe_worker(
+    speech_rx: std::sync::mpsc::Receiver<crate::audio::vad::SpeechSegment>,
+    session_id: String,
+    kind: crate::audio::SourceKind,
+    jsonl_path: std::path::PathBuf,
+    on_segment: impl Fn(&[Segment]) + Send + 'static,
+) -> TranscribeWorker {
+    let pending = Arc::new(AtomicUsize::new(0));
+    let pending_thread = pending.clone();
+    let handle = std::thread::spawn(move || {
+        while let Ok(seg) = speech_rx.recv() {
+            pending_thread.fetch_add(1, Ordering::Relaxed);
+            // 寫 temp WAV
+            let tmp = std::env::temp_dir().join(format!(
+                "mori-live-{}-{}.wav",
+                kind.as_str(),
+                seg.start_offset_ms
+            ));
+            if let Err(e) = write_wav_16k_mono(&tmp, &seg.samples) {
+                eprintln!("live transcribe: write temp wav: {e}");
+                pending_thread.fetch_sub(1, Ordering::Relaxed);
+                continue;
+            }
+            let raw = run_whisper(&tmp, &session_id, kind);
+            let _ = std::fs::remove_file(&tmp);
+            // whisper-cli 另外寫了 <wav>.json sidecar,一併清掉
+            let _ = std::fs::remove_file(tmp.with_extension("wav.json"));
+            let shifted = shift_segments_by_offset(raw, seg.start_offset_ms);
+            if !shifted.is_empty() {
+                if let Err(e) = append_segments_jsonl(&jsonl_path, &shifted) {
+                    eprintln!("live transcribe: append jsonl: {e}");
+                }
+                on_segment(&shifted);
+            }
+            pending_thread.fetch_sub(1, Ordering::Relaxed);
+        }
+    });
+    TranscribeWorker { handle, pending }
 }
 
 /// 讀回 jsonl 成 Vec<Segment>(stop 時彙整用)。缺檔回空。壞行跳過。
@@ -272,5 +328,20 @@ mod tests {
         let json = r#"{"transcription": []}"#;
         let segs = parse_whisper_json(json, "x", SourceKind::MeetingSystem).unwrap();
         assert!(segs.is_empty());
+    }
+
+    #[test]
+    fn write_wav_16k_mono_round_trip() {
+        use hound::WavReader;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("live-seg.wav");
+        let signal: Vec<i16> = (0..3200_i16).map(|i| i * 10).collect();
+        write_wav_16k_mono(&path, &signal).unwrap();
+        let mut r = WavReader::open(&path).unwrap();
+        assert_eq!(r.spec().channels, 1);
+        assert_eq!(r.spec().sample_rate, 16_000);
+        assert_eq!(r.spec().bits_per_sample, 16);
+        let read_back: Vec<i16> = r.samples::<i16>().map(|s| s.unwrap()).collect();
+        assert_eq!(read_back, signal);
     }
 }
