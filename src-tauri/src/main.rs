@@ -518,6 +518,79 @@ async fn download_diar_models() -> Result<(), String> {
     result?
 }
 
+// ── C2: 工作區後端 command ───────────────────────────────────────────────────
+
+/// 讀一場 session 的逐字稿(兩軌 jsonl 合併,依 start_ms 排序)。
+#[tauri::command]
+fn read_session_transcript(session_id: String) -> Vec<transcribe::Segment> {
+    postprocess::read_session_segments(
+        &session_store::default_meetings_dir().join(&session_id),
+    )
+}
+
+/// 讀一場 session 的講者清單(speakers.json → Vec<SpeakerInfo>)。
+#[tauri::command]
+fn read_speakers_cmd(session_id: String) -> Vec<diarize::SpeakerInfo> {
+    diarize::read_speakers(
+        &session_store::default_meetings_dir()
+            .join(&session_id)
+            .join("transcript/speakers.json"),
+    )
+}
+
+/// 改一場 session 某講者的顯示名(只動 speakers.json)。
+#[tauri::command]
+fn rename_speaker_cmd(session_id: String, id: String, display: String) -> Result<(), String> {
+    diarize::rename_speaker(
+        &session_store::default_meetings_dir()
+            .join(&session_id)
+            .join("transcript/speakers.json"),
+        &id,
+        &display,
+    )
+}
+
+/// 讀 meeting-info.json(topic + participants);缺檔 → 回 {topic:"",participants:""}。
+#[tauri::command]
+fn read_meeting_info(session_id: String) -> serde_json::Value {
+    let p = session_store::default_meetings_dir()
+        .join(&session_id)
+        .join("meeting-info.json");
+    std::fs::read_to_string(p)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({"topic": "", "participants": ""}))
+}
+
+/// 寫 meeting-info.json(topic + participants)到指定 session。
+#[tauri::command]
+fn set_meeting_info_for(
+    session_id: String,
+    topic: String,
+    participants: String,
+) -> Result<(), String> {
+    let root = session_store::default_meetings_dir().join(&session_id);
+    let body = serde_json::to_string_pretty(
+        &serde_json::json!({"topic": topic, "participants": participants}),
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(root.join("meeting-info.json"), body)
+        .map_err(|e| format!("write meeting-info: {e}"))
+}
+
+/// 用目前 jsonl(已含 speaker)+ speakers.json + timeline.json 重新匯出
+/// meeting.public/internal.md(spawn_blocking 不卡 UI)。
+#[tauri::command]
+async fn reexport_session(session_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        postprocess::reexport_session(
+            &session_store::default_meetings_dir().join(&session_id),
+        )
+    })
+    .await
+    .map_err(|e| format!("join reexport_session: {e}"))?
+}
+
 /// 對一場 session 跑分人後處理:讀 meeting-info 人員數 → num_clusters → 每軌 diarize_wav
 /// → assign_speakers → 標回兩軌 jsonl + 寫 speakers.json。
 /// 耗時(實時因子約 0.08x CPU)→ spawn_blocking 不卡 UI(同 recorder_stop 模式)。
@@ -619,6 +692,13 @@ fn main() {
             // C1: diarization model management
             diar_models_present,
             download_diar_models,
+            // C2: workspace backend commands
+            read_session_transcript,
+            read_speakers_cmd,
+            rename_speaker_cmd,
+            read_meeting_info,
+            set_meeting_info_for,
+            reexport_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
