@@ -129,6 +129,14 @@ impl Recorder {
         let cfg = crate::config::read_config();
         let language = cfg.language.clone();
         let traditional = cfg.traditional;
+        // 本場「一次解析、快取」共享 whisper-server(契約 §3.1 verify-before-trust):engine=cli → 不用;
+        // auto/server → reachable_server() 驗活一次,整場沿用,避免每段都 GET / 驗活的延遲。每軌各拿
+        // 一份 clone,worker 內 sticky:server 掛了就該軌改 cli。沒 server 一律 cli(standalone-first)。
+        let server = if cfg.transcribe_engine == "cli" {
+            None
+        } else {
+            crate::whisper_discovery::reachable_server()
+        };
         // 重置 per-track 進度計數(上一場歸零)。
         for p in [&self.sys_progress, &self.mic_progress] {
             p.pending.store(0, Ordering::Relaxed);
@@ -168,6 +176,7 @@ impl Recorder {
                         traditional,
                         prog.pending.clone(),
                         prog.done.clone(),
+                        server.clone(),
                         move |segs| {
                             for s in segs {
                                 let _ = app_for_worker.emit(
@@ -361,12 +370,19 @@ impl Recorder {
         vc.handle.stop_flag.store(true, Ordering::Relaxed);
         let _ = vc.handle.writer_handle.join();
         let cfg = crate::config::read_config();
+        // 單段語音輸入:engine=cli 不用 server,否則驗活一次。&mut 讓 server 失敗時 sticky 落 cli。
+        let mut server = if cfg.transcribe_engine == "cli" {
+            None
+        } else {
+            crate::whisper_discovery::reachable_server()
+        };
         let segs = crate::transcribe::run_whisper(
             &vc.temp_path,
             "voice-input",
             SourceKind::MicInternal,
             &cfg.language,
             true, // 語音輸入(主題/參與者)一定轉台灣正體,不受會議稿的 traditional 勾選影響
+            &mut server,
         );
         let _ = std::fs::remove_file(&vc.temp_path);
         let _ = std::fs::remove_file(vc.temp_path.with_extension("wav.json"));

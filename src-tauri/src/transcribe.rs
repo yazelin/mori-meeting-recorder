@@ -127,11 +127,35 @@ fn is_noise_segment(text: &str) -> bool {
 /// 跑 whisper-cli 對單一 WAV 檔,回 Segments。檔案不存在或 binary 缺則跳過(回空)。
 /// `language`:傳給 whisper 的 `-l` 值(e.g. "zh"/"en"/"auto")。
 /// `traditional`:若 true 則嘗試用 opencc 把輸出轉台灣繁體;opencc 缺就略過。
-pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &str, traditional: bool) -> Vec<Segment> {
-    // Engine 邊界:transcribe_raw 回「原始」segments(cli 或共享 whisper-server),
-    // 所有 post-processing 一律在這層做 → 兩條路徑輸出後處理完全一致(noise filter + 繁體)。
-    let mut segs = transcribe_raw(wav, session_id, kind, language);
-    // 濾掉非語音雜訊 + whisper 靜音幻覺(不再用 -sns —— 那會逼模型把非語音段瞎掰成真詞)。
+/// 轉錄單一 WAV clip,回後處理完的 Segments。
+/// `server`:本場「一次解析、快取」的共享 whisper-server(None = 走 cli;Some = 走 server)。
+/// 引擎選擇(auto/cli/server + 驗活)在開場時做一次(見 recorder.rs),不在這裡每段重做。
+///
+/// **sticky fallback**:server 端任何失敗(連線 / 非 200 / malformed json)→ 設 `*server = None`,
+/// 本場之後一律 cli。否則 server 若中途掛掉,會變成「每段都先等 timeout 再 fallback」,比純 cli 還慢
+/// —— 比原本「每段重驗」更糟,所以只認賠一次就改用 cli。**standalone-first**:沒 server 永遠能跑(契約 §3.3)。
+///
+/// noise filter + 繁體一律在這層做 → server / cli 兩路輸出後處理完全一致。
+pub fn run_whisper(
+    wav: &Path,
+    session_id: &str,
+    kind: SourceKind,
+    language: &str,
+    traditional: bool,
+    server: &mut Option<crate::whisper_discovery::WhisperServerDescriptor>,
+) -> Vec<Segment> {
+    let mut segs = match server.as_ref() {
+        Some(desc) => match run_whisper_server(desc, wav, session_id, kind, language) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[whisper] server failed ({e}); using cli for the rest of this session");
+                *server = None; // sticky:本場放棄 server,後續 clip 不再每段等 timeout
+                run_whisper_cli(wav, session_id, kind, language)
+            }
+        },
+        None => run_whisper_cli(wav, session_id, kind, language),
+    };
+    // 濾掉非語音雜訊(不再用 -sns —— 那會逼模型把非語音段瞎掰成真詞)。
     segs.retain(|s| !is_noise_segment(&s.text));
     if traditional {
         for s in &mut segs {
@@ -139,24 +163,6 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &st
         }
     }
     segs
-}
-
-/// 依 `config.transcribe_engine` 選引擎,回「原始」segments(未做 noise filter / 繁體轉換)。
-/// auto / server = 有「驗活過」的共享 whisper-server 就用、失敗 fallback cli;cli = 一律 cli。
-/// **standalone-first 硬規矩**:即使選 server,沒 server 時仍 fallback cli,單機照跑(契約 §3.3)。
-/// (auto 與 server 目前行為一致;兩者差別「server 模式可由本程式主動 start server」屬後續 starter PR。)
-fn transcribe_raw(wav: &Path, session_id: &str, kind: SourceKind, language: &str) -> Vec<Segment> {
-    let engine = crate::config::read_config().transcribe_engine;
-    if engine == "server" || engine == "auto" {
-        // reachable_server() 內含驗活(pid + GET / 200);pid 死的 stale descriptor 會即時回 None,不會卡。
-        if let Some(desc) = crate::whisper_discovery::reachable_server() {
-            match run_whisper_server(&desc, wav, session_id, kind, language) {
-                Ok(segs) => return segs,
-                Err(e) => eprintln!("[whisper] server path failed ({e}); falling back to cli"),
-            }
-        }
-    }
-    run_whisper_cli(wav, session_id, kind, language)
 }
 
 /// 16kHz mono WAV 的長度(ms)。共享 server 回 plain `{text}`(無 per-word offset),
@@ -174,24 +180,29 @@ fn wav_duration_ms(wav: &Path) -> u64 {
 
 /// 把共享 whisper-server 的 baseline plain-json 回應(`{"text": "..."}`,契約 §2)轉成
 /// 「整個 clip 一段」的 raw Segment(start=0、end=clip 長度;之後由 caller 平移成絕對時間)。
-/// text 去頭尾空白後為空 → None。noise filter / 繁體轉換一律在 run_whisper 那層做,這裡不碰。
+///
+/// 回傳語義刻意分三種(影響上層要不要 fallback cli):
+/// - `Err`  = json 解不開(server 回了非預期內容)→ run_whisper_server 往上拋 → fallback cli。
+/// - `Ok(None)` = text 去空白後為空(**真靜音**,whisper 對無語音 clip 的正常輸出)→ 不產段、
+///   **不 fallback**(否則每段靜音都會白跑一次 cli)。
+/// - `Ok(Some)` = 有內容。noise filter / 繁體一律在 run_whisper 那層做,這裡不碰。
 fn parse_server_json(
     json: &str,
     clip_duration_ms: u64,
     session_id: &str,
     kind: SourceKind,
-) -> Option<Segment> {
+) -> Result<Option<Segment>, String> {
     #[derive(Deserialize)]
     struct Resp {
         text: String,
     }
-    let resp: Resp = serde_json::from_str(json).ok()?;
+    let resp: Resp = serde_json::from_str(json).map_err(|e| format!("parse server json: {e}"))?;
     let text = resp.text.trim().to_string();
     if text.is_empty() {
-        return None;
+        return Ok(None);
     }
     let visibility = kind.default_visibility();
-    Some(Segment {
+    Ok(Some(Segment {
         id: "seg_001".to_string(),
         session_id: session_id.to_string(),
         track: kind.track_name().to_string(),
@@ -205,7 +216,7 @@ fn parse_server_json(
         text,
         is_final: true,
         confidence: None,
-    })
+    }))
 }
 
 /// POST 一個 WAV clip 到共享 whisper-server 的 `/inference`(multipart/form-data,
@@ -239,16 +250,22 @@ fn run_whisper_server(
     );
     body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
 
+    // 60s(原 120s):clip 上限 20s 音訊,即使慢機 CPU 跑 large-v3-turbo 也夠;太長會讓中途掛掉的
+    // server 把第一段卡到天荒地老才 fallback。配合 sticky fallback,最多認賠這一段就改 cli。
     let resp = ureq::post(&desc.inference_url())
         .set("Content-Type", &format!("multipart/form-data; boundary={boundary}"))
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(60))
         .send_bytes(&body)
         .map_err(|e| format!("POST {}: {e}", desc.inference_url()))?;
     if resp.status() != 200 {
-        return Err(format!("status {}", resp.status()));
+        // body 常帶診斷(模型 OOM / 載入失敗等),截 200 字一起回,讓 fallback log 看得到原因。
+        let status = resp.status();
+        let snippet: String = resp.into_string().unwrap_or_default().chars().take(200).collect();
+        return Err(format!("status {status}: {snippet}"));
     }
     let json = resp.into_string().map_err(|e| format!("read resp: {e}"))?;
-    Ok(parse_server_json(&json, duration_ms, session_id, kind)
+    // malformed json → `?` 往上變 Err → fallback cli;空 text → Ok(None) → 空 Vec(真靜音,不 fallback)。
+    Ok(parse_server_json(&json, duration_ms, session_id, kind)?
         .map(|s| vec![s])
         .unwrap_or_default())
 }
@@ -375,9 +392,12 @@ pub fn spawn_transcribe_worker(
     traditional: bool,
     pending: Arc<AtomicUsize>,
     done: Arc<AtomicUsize>,
+    server: Option<crate::whisper_discovery::WhisperServerDescriptor>,
     on_segment: impl Fn(&[Segment]) + Send + 'static,
 ) -> TranscribeWorker {
     let handle = std::thread::spawn(move || {
+        // 本 worker(本軌)的 server 快取;sticky fallback 後設 None,本場後續 clip 直接 cli。
+        let mut server = server;
         while let Ok(seg) = speech_rx.recv() {
             // pending 在 capture 送進 channel 時就 +1(見 audio/*),這裡只在轉完時 -1。
             // 寫 temp WAV
@@ -392,7 +412,7 @@ pub fn spawn_transcribe_worker(
                 done.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
-            let raw = run_whisper(&tmp, &session_id, kind, &language, traditional);
+            let raw = run_whisper(&tmp, &session_id, kind, &language, traditional, &mut server);
             let _ = std::fs::remove_file(&tmp);
             // whisper-cli 另外寫了 <wav>.json sidecar,一併清掉
             let _ = std::fs::remove_file(tmp.with_extension("wav.json"));
@@ -544,7 +564,9 @@ mod tests {
     #[test]
     fn parse_server_json_makes_one_segment_spanning_the_clip() {
         // baseline plain {text}:整個 clip 一段,start=0、end=clip 長度。whisper 常前綴空白 → trim。
-        let seg = parse_server_json(r#"{"text":" 我們下週三前要交版本。"}"#, 4200, "m1", SourceKind::MeetingSystem).unwrap();
+        let seg = parse_server_json(r#"{"text":" 我們下週三前要交版本。"}"#, 4200, "m1", SourceKind::MeetingSystem)
+            .unwrap()
+            .unwrap();
         assert_eq!(seg.id, "seg_001");
         assert_eq!(seg.session_id, "m1");
         assert_eq!(seg.track, "system");
@@ -558,28 +580,33 @@ mod tests {
 
     #[test]
     fn parse_server_json_mic_internal_visibility() {
-        let seg = parse_server_json(r#"{"text":"私心話"}"#, 1000, "x", SourceKind::MicInternal).unwrap();
+        let seg = parse_server_json(r#"{"text":"私心話"}"#, 1000, "x", SourceKind::MicInternal)
+            .unwrap()
+            .unwrap();
         assert_eq!(seg.visibility, "internal");
         assert_eq!(seg.track, "mic-internal");
     }
 
     #[test]
-    fn parse_server_json_empty_text_is_none() {
-        // 空 / 純空白 → None(不產段);noise filter 在上層,parser 只擋全空。
-        assert!(parse_server_json(r#"{"text":""}"#, 1000, "x", SourceKind::MeetingSystem).is_none());
-        assert!(parse_server_json(r#"{"text":"   "}"#, 1000, "x", SourceKind::MeetingSystem).is_none());
+    fn parse_server_json_empty_text_is_ok_none_not_error() {
+        // 空 / 純空白 = 真靜音 → Ok(None):不產段、**不**讓上層 fallback cli(否則每段靜音白跑 cli)。
+        assert!(parse_server_json(r#"{"text":""}"#, 1000, "x", SourceKind::MeetingSystem).unwrap().is_none());
+        assert!(parse_server_json(r#"{"text":"   "}"#, 1000, "x", SourceKind::MeetingSystem).unwrap().is_none());
     }
 
     #[test]
     fn parse_server_json_keeps_bracketed_text_for_upstream_noise_filter() {
         // 括號非語音標註在這層「不」過濾(交給 run_whisper 的 is_noise_segment 統一處理,兩引擎一致)。
-        let seg = parse_server_json(r#"{"text":"[Music]"}"#, 800, "x", SourceKind::MeetingSystem).unwrap();
+        let seg = parse_server_json(r#"{"text":"[Music]"}"#, 800, "x", SourceKind::MeetingSystem)
+            .unwrap()
+            .unwrap();
         assert_eq!(seg.text, "[Music]");
     }
 
     #[test]
-    fn parse_server_json_corrupt_is_none() {
-        assert!(parse_server_json("{ not json", 1000, "x", SourceKind::MeetingSystem).is_none());
+    fn parse_server_json_corrupt_is_err_so_caller_falls_back() {
+        // malformed json = server 回非預期 → Err → run_whisper_server 往上拋 → fallback cli。
+        assert!(parse_server_json("{ not json", 1000, "x", SourceKind::MeetingSystem).is_err());
     }
 
     #[test]
