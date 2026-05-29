@@ -49,7 +49,15 @@
     "default": "預設 {{v}}",
     "reset": "還原預設",
     "save": "儲存",
-    "saved": "已儲存 — 下次錄音生效"
+    "saved": "已儲存 — 下次錄音生效",
+    "language": "轉錄語言",
+    "language_hint": "強制 whisper 用這個語言(預設中文)。選「自動」讓它自己偵測。",
+    "lang_auto": "自動偵測",
+    "lang_zh": "中文",
+    "lang_en": "英文",
+    "lang_ja": "日文",
+    "traditional": "轉成台灣繁體",
+    "traditional_hint": "把簡體輸出用 OpenCC 轉台灣繁體(需安裝 opencc 工具,沒裝就略過不轉)。"
   },
   "deps": {
     "title": "依賴檢查",

@@ -49,7 +49,15 @@
     "default": "default {{v}}",
     "reset": "Reset defaults",
     "save": "Save",
-    "saved": "Saved — takes effect next recording"
+    "saved": "Saved — takes effect next recording",
+    "language": "Transcription language",
+    "language_hint": "Force whisper to this language (default Chinese). 'Auto' lets it detect.",
+    "lang_auto": "Auto-detect",
+    "lang_zh": "Chinese",
+    "lang_en": "English",
+    "lang_ja": "Japanese",
+    "traditional": "Convert to Traditional (Taiwan)",
+    "traditional_hint": "Converts Simplified output to Taiwan Traditional via OpenCC (needs the opencc tool installed; otherwise no-op)."
   },
   "deps": {
     "title": "Dependency check",
