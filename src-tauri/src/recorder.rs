@@ -7,6 +7,7 @@ use crate::transcribe::{Segment};
 use tauri::Emitter;
 use chrono::{DateTime, Local};
 use serde::Serialize;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -25,6 +26,12 @@ pub struct ActiveSession {
     pub workers: Vec<crate::transcribe::TranscribeWorker>,
 }
 
+/// 語音輸入(主題/參與者快速口述)用的獨立麥克風 capture — 跟會議錄音無關,只寫 temp WAV。
+pub struct VoiceCapture {
+    pub handle: CaptureHandle,
+    pub temp_path: PathBuf,
+}
+
 /// per-track 轉錄進度。放 Recorder(singleton)而非 ActiveSession,這樣 stop 把 active
 /// 拿走後、worker 還在 drain 佇列時,status() 仍讀得到「剩幾段」。
 #[derive(Default)]
@@ -38,6 +45,7 @@ pub struct Recorder {
     pub state: Mutex<State>,
     pub sys_progress: TrackProgress,
     pub mic_progress: TrackProgress,
+    pub voice: Mutex<Option<VoiceCapture>>,
 }
 
 impl Default for Recorder {
@@ -47,6 +55,7 @@ impl Default for Recorder {
             state: Mutex::new(State::Idle),
             sys_progress: TrackProgress::default(),
             mic_progress: TrackProgress::default(),
+            voice: Mutex::new(None),
         }
     }
 }
@@ -278,6 +287,56 @@ impl Recorder {
 
         *self.state.lock().map_err(|e| e.to_string())? = State::Idle;
         Ok(session_id)
+    }
+
+    /// 語音輸入開始:獨立錄一小段麥克風(跟會議錄音無關)寫進 temp WAV。VAD 段的 receiver
+    /// 直接丟掉(我們只要整段 WAV)。
+    pub fn voice_input_start(&self) -> Result<(), String> {
+        let mut guard = self.voice.lock().map_err(|e| e.to_string())?;
+        if guard.is_some() {
+            return Err("voice input already running".into());
+        }
+        let temp_path = std::env::temp_dir().join("mori-voice-input.wav");
+        let vad_cfg = crate::audio::vad::VadConfig {
+            silence_split_ms: 600,
+            silence_threshold_db: -45.0,
+            min_speech_secs: 0.5,
+            max_segment_secs: 60.0,
+        };
+        let dummy_pending = Arc::new(AtomicUsize::new(0));
+        let (handle, _rx) =
+            audio::open_capture(SourceKind::MicInternal, temp_path.clone(), vad_cfg, dummy_pending)?;
+        *guard = Some(VoiceCapture { handle, temp_path });
+        Ok(())
+    }
+
+    /// 語音輸入停止:停 capture → whisper 轉錄整段 temp WAV → 回文字(用 config 的語言/繁體)。
+    pub fn voice_input_stop(&self) -> Result<String, String> {
+        let vc = self
+            .voice
+            .lock()
+            .map_err(|e| e.to_string())?
+            .take()
+            .ok_or("no voice input running")?;
+        vc.handle.stop_flag.store(true, Ordering::Relaxed);
+        let _ = vc.handle.writer_handle.join();
+        let cfg = crate::config::read_config();
+        let segs = crate::transcribe::run_whisper(
+            &vc.temp_path,
+            "voice-input",
+            SourceKind::MicInternal,
+            &cfg.language,
+            cfg.traditional,
+        );
+        let _ = std::fs::remove_file(&vc.temp_path);
+        let _ = std::fs::remove_file(vc.temp_path.with_extension("wav.json"));
+        let text = segs
+            .iter()
+            .map(|s| s.text.trim())
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        Ok(text)
     }
 
     /// 把本場主題 / 參與者寫進當前 session 的 meeting-info.json(PR H 整理會議記錄時讀)。
