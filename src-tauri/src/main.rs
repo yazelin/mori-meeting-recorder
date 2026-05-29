@@ -9,6 +9,7 @@ pub mod postprocess;
 pub mod recorder;
 pub mod session_store;
 pub mod transcribe;
+pub mod voiceprint;
 pub mod whisper_discovery;
 
 use recorder::{instance as recorder_instance, RecorderStatus};
