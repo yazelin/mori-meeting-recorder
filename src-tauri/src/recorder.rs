@@ -326,7 +326,7 @@ impl Recorder {
             "voice-input",
             SourceKind::MicInternal,
             &cfg.language,
-            cfg.traditional,
+            true, // 語音輸入(主題/參與者)一定轉台灣正體,不受會議稿的 traditional 勾選影響
         );
         let _ = std::fs::remove_file(&vc.temp_path);
         let _ = std::fs::remove_file(vc.temp_path.with_extension("wav.json"));

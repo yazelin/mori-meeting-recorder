@@ -70,7 +70,6 @@ pub fn parse_whisper_json(
 
 use std::path::Path;
 use std::process::Command;
-use zhconv::{zhconv, Variant};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -89,10 +88,20 @@ pub fn whisper_model_path() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from(WHISPER_MODEL_FILENAME))
 }
 
-/// 簡→台灣正體(zh-Hant-TW)。用純 Rust 的 zhconv(MediaWiki 轉換表 + 台灣詞彙),
-/// bundle 在 binary 內 —— 不再依賴外部 opencc 安裝(之前 opencc 沒裝 → 一直是簡體)。
+/// 簡→台灣正體。用純 Rust 的 ferrous-opencc(bundle OpenCC 官方字典,s2twp 含台灣詞彙
+/// 片語,如 软件→軟體),零外部安裝。converter 載字典較重 → OnceLock 只建一次後重用;
+/// 萬一建失敗(理論上不會,字典 bundle 在內)就回原文。
 pub fn to_traditional(text: &str) -> String {
-    zhconv(text, Variant::ZhTW)
+    use ferrous_opencc::config::BuiltinConfig;
+    use ferrous_opencc::OpenCC;
+    static CC: std::sync::OnceLock<Option<OpenCC>> = std::sync::OnceLock::new();
+    match CC
+        .get_or_init(|| OpenCC::from_config(BuiltinConfig::S2twp).ok())
+        .as_ref()
+    {
+        Some(cc) => cc.convert(text),
+        None => text.to_string(),
+    }
 }
 
 /// 只丟「whisper 自己明確標成非語音」的段:整段被括號 / ♪ 包住(SDH 風格的
