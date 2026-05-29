@@ -200,7 +200,7 @@ fn identify_speakers(session_root: &std::path::Path, labeled: &[crate::transcrib
         let wav_rel = if seg.track == "system" { "audio/system.wav" } else { "audio/mic-internal.wav" };
         let wav = session_root.join(wav_rel);
         let emb = match read_wav_slice_f32(&wav, seg.start_ms, seg.end_ms) {
-            Some(s) => match crate::voiceprint::embed_samples(&s, 16_000) { Ok(e) => e, Err(_) => continue },
+            Some((s, sr)) => match crate::voiceprint::embed_samples(&s, sr) { Ok(e) => e, Err(_) => continue },
             None => continue,
         };
         if let Some(p) = crate::voiceprint::best_match(&emb, &reg.people, crate::voiceprint::MATCH_THRESHOLD) {
@@ -213,16 +213,17 @@ fn identify_speakers(session_root: &std::path::Path, labeled: &[crate::transcrib
     if changed { let _ = crate::diarize::write_speakers(&sp_path, &speakers); }
 }
 
-/// 讀 16k mono WAV 在 [start_ms,end_ms] 的樣本(f32)。讀不到/空 → None。
-fn read_wav_slice_f32(wav: &std::path::Path, start_ms: u64, end_ms: u64) -> Option<Vec<f32>> {
+/// 讀 WAV 在 [start_ms,end_ms] 的樣本(f32)並回傳實際 sample rate。讀不到/空 → None。
+fn read_wav_slice_f32(wav: &std::path::Path, start_ms: u64, end_ms: u64) -> Option<(Vec<f32>, i32)> {
     let mut r = hound::WavReader::open(wav).ok()?;
-    let sr = r.spec().sample_rate as u64;
-    let lo = (start_ms * sr / 1000) as usize;
-    let hi = (end_ms * sr / 1000) as usize;
+    let sr = r.spec().sample_rate as i32;
+    let sr_u64 = sr as u64;
+    let lo = (start_ms * sr_u64 / 1000) as usize;
+    let hi = (end_ms * sr_u64 / 1000) as usize;
     let all: Vec<i16> = r.samples::<i16>().filter_map(|x| x.ok()).collect();
     if lo >= all.len() || hi <= lo { return None; }
     let hi = hi.min(all.len());
-    Some(all[lo..hi].iter().map(|&v| v as f32 / 32768.0).collect())
+    Some((all[lo..hi].iter().map(|&v| v as f32 / 32768.0).collect(), sr))
 }
 
 #[cfg(test)]

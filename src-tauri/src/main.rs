@@ -647,11 +647,20 @@ fn enroll_voice_finish(name: String) -> Result<(), String> {
     let emb = crate::voiceprint::embed_wav_file(&wav)?;
     let _ = std::fs::remove_file(&wav);
     let mut reg = crate::voiceprint::load_or_new();
+    if reg.embedding_model != crate::voiceprint::EMB_MODEL {
+        return Err(format!(
+            "registry embedding model mismatch ({} != {}); refuse to enroll into a foreign-model registry",
+            reg.embedding_model, crate::voiceprint::EMB_MODEL
+        ));
+    }
     match reg.people.iter_mut().find(|p| p.name == name) {
         Some(p) => p.samples.push(emb),
-        None => reg.people.push(crate::voiceprint::Person {
-            id: format!("p{}", reg.people.len() + 1), name, samples: vec![emb],
-        }),
+        None => {
+            let next = reg.people.iter()
+                .filter_map(|p| p.id.strip_prefix('p').and_then(|n| n.parse::<u32>().ok()))
+                .max().map_or(1, |m| m + 1);
+            reg.people.push(crate::voiceprint::Person { id: format!("p{next}"), name, samples: vec![emb] });
+        }
     }
     crate::voiceprint::write_registry(&reg)
 }
@@ -679,8 +688,10 @@ fn remove_voiceprint(id: String) -> Result<(), String> {
 #[tauri::command]
 fn rename_voiceprint(id: String, name: String) -> Result<(), String> {
     let mut reg = crate::voiceprint::load_or_new();
-    if let Some(p) = reg.people.iter_mut().find(|p| p.id == id) { p.name = name; }
-    crate::voiceprint::write_registry(&reg)
+    match reg.people.iter_mut().find(|p| p.id == id) {
+        Some(p) => { p.name = name; crate::voiceprint::write_registry(&reg) }
+        None => Err(format!("voiceprint id not found: {id}")),
+    }
 }
 
 /// 對一場 session 跑分人後處理:讀 meeting-info 人員數 → num_clusters → 每軌 diarize_wav
