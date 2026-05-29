@@ -28,6 +28,8 @@ dirs = "5"
 ferrous-opencc = "0.4"
 # 共享 whisper-server 的 HTTP client(localhost only,免 TLS)— 健康檢查 GET / + POST /inference。
 ureq = { version = "2", default-features = false }
+# 講者分離(onnx,無 Python)。static = 靜態連 onnxruntime(CPU)。GPU 之後用 provider=cuda(需 CUDA-enabled build)。
+sherpa-onnx = { version = "1.13", default-features = false, features = ["static"] }
 
 # Linux:libpulse client API(PipeWire 完全相容,看得到 .monitor source)
 [target.'cfg(target_os = "linux")'.dependencies]
