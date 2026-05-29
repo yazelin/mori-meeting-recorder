@@ -68,8 +68,9 @@ pub fn parse_whisper_json(
     Ok(segs)
 }
 
+use std::io::Write as _;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -88,8 +89,46 @@ pub fn whisper_model_path() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from(WHISPER_MODEL_FILENAME))
 }
 
+/// 優先找 ~/.mori/bin/opencc;其次嘗試 PATH 上的 opencc。
+/// 不保證 opencc 存在 — 呼叫端用 Option。
+pub fn opencc_bin_path() -> Option<std::path::PathBuf> {
+    if let Some(home) = dirs::home_dir() {
+        let p = home.join(".mori").join("bin").join("opencc");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    // 嘗試 PATH:直接回 Some("opencc"),spawn 失敗就 None(呼叫端處理)
+    Some(std::path::PathBuf::from("opencc"))
+}
+
+/// 用 opencc 把文字從簡體轉台灣繁體(s2twp.json)。
+/// 任何 spawn / IO 錯誤均回 None,呼叫端保留原文。
+pub fn to_traditional(text: &str) -> Option<String> {
+    let bin = opencc_bin_path()?;
+    let mut child = Command::new(&bin)
+        .args(["-c", "s2twp.json"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    {
+        let stdin = child.stdin.as_mut()?;
+        stdin.write_all(text.as_bytes()).ok()?;
+    }
+    let output = child.wait_with_output().ok()?;
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
 /// 跑 whisper-cli 對單一 WAV 檔,回 Segments。檔案不存在或 binary 缺則跳過(回空)。
-pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind) -> Vec<Segment> {
+/// `language`:傳給 whisper 的 `-l` 值(e.g. "zh"/"en"/"auto")。
+/// `traditional`:若 true 則嘗試用 opencc 把輸出轉台灣繁體;opencc 缺就略過。
+pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &str, traditional: bool) -> Vec<Segment> {
     if !wav.exists() {
         return vec![];
     }
@@ -105,6 +144,9 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind) -> Vec<Segmen
             &model.to_string_lossy(),
             "-f",
             &wav.to_string_lossy(),
+            "-l",
+            language,
+            "-sns",
             "--output-json-full",
             "--no-prints",
         ])
@@ -129,13 +171,29 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind) -> Vec<Segmen
             return vec![];
         }
     };
-    match parse_whisper_json(&json, session_id, kind) {
+    let mut segs = match parse_whisper_json(&json, session_id, kind) {
         Ok(segs) => segs,
         Err(e) => {
             eprintln!("parse whisper json: {e}");
-            vec![]
+            return vec![];
+        }
+    };
+    if traditional {
+        // 嘗試 opencc 轉台灣繁體;opencc 不在就略過(graceful)。
+        // 第一次轉失敗時印一次提示(呼叫端 per-segment 失敗各自 None 就略過,不重複 eprintln)。
+        let mut warned = false;
+        for s in &mut segs {
+            match to_traditional(&s.text) {
+                Some(t) => s.text = t,
+                None if !warned => {
+                    eprintln!("[mori] opencc not available or failed — Traditional conversion skipped (install opencc to enable)");
+                    warned = true;
+                }
+                None => {}
+            }
         }
     }
+    segs
 }
 
 /// 把 whisper 跑「短段」出來的 segment(段內相對時間)平移成「整場絕對時間」。
@@ -183,11 +241,15 @@ pub struct TranscribeWorker {
 }
 
 /// 啟一個 worker。speech_rx 來自 open_capture 回傳的 tuple;每段轉完呼 on_segment(&segments) 給呼叫端 emit。
+/// `language`: 傳給 whisper 的 `-l` 值(e.g. "zh"/"en"/"auto")。
+/// `traditional`: 是否嘗試用 opencc 轉台灣繁體。
 pub fn spawn_transcribe_worker(
     speech_rx: std::sync::mpsc::Receiver<crate::audio::vad::SpeechSegment>,
     session_id: String,
     kind: crate::audio::SourceKind,
     jsonl_path: std::path::PathBuf,
+    language: String,
+    traditional: bool,
     on_segment: impl Fn(&[Segment]) + Send + 'static,
 ) -> TranscribeWorker {
     let pending = Arc::new(AtomicUsize::new(0));
@@ -206,7 +268,7 @@ pub fn spawn_transcribe_worker(
                 pending_thread.fetch_sub(1, Ordering::Relaxed);
                 continue;
             }
-            let raw = run_whisper(&tmp, &session_id, kind);
+            let raw = run_whisper(&tmp, &session_id, kind, &language, traditional);
             let _ = std::fs::remove_file(&tmp);
             // whisper-cli 另外寫了 <wav>.json sidecar,一併清掉
             let _ = std::fs::remove_file(tmp.with_extension("wav.json"));
@@ -328,6 +390,17 @@ mod tests {
         let json = r#"{"transcription": []}"#;
         let segs = parse_whisper_json(json, "x", SourceKind::MeetingSystem).unwrap();
         assert!(segs.is_empty());
+    }
+
+    #[test]
+    fn to_traditional_does_not_panic() {
+        // to_traditional either returns Some(String) (opencc present) or None (absent).
+        // It must never panic regardless of opencc availability.
+        let result = to_traditional("测试文字");
+        // Either None (no opencc) or Some with a non-empty string — never panic.
+        if let Some(s) = result {
+            assert!(!s.is_empty());
+        }
     }
 
     #[test]
