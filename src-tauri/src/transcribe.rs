@@ -125,6 +125,34 @@ pub fn to_traditional(text: &str) -> Option<String> {
     }
 }
 
+/// 判斷一段是否為「非語音雜訊 / whisper 幻覺」,該丟。
+/// (1) 整段被括號 / ♪ 包住 = whisper 的 non-speech 標註(`[keyboard clacking]` / `（音樂）`)。
+/// (2) 已知靜音幻覺片語(whisper 在無語音段常吐 YouTube 結尾語;簡繁都列,需整段精確相符才丟,
+///     避免誤殺真的講「謝謝大家,辛苦了」)。
+fn is_noise_segment(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return true;
+    }
+    let first = t.chars().next().unwrap();
+    let last = t.chars().last().unwrap();
+    if matches!(
+        (first, last),
+        ('[', ']') | ('(', ')') | ('（', '）') | ('【', '】') | ('*', '*') | ('♪', '♪')
+    ) {
+        return true;
+    }
+    // 去掉尾端標點再跟黑名單精確比對
+    let core = t.trim_end_matches(|c: char| "。.!！?？、,, ".contains(c));
+    const HALLUCINATIONS: &[&str] = &[
+        "謝謝大家", "谢谢大家", "謝謝觀看", "谢谢观看", "謝謝收看", "谢谢收看",
+        "感謝觀看", "感谢观看", "請訂閱", "请订阅", "請按讚訂閱", "请点赞订阅",
+        "請不吝點贊訂閱", "请不吝点赞订阅", "字幕由", "字幕志願者", "字幕志愿者",
+        "我們下次再見", "我们下次再见", "下次再見", "下次再见",
+    ];
+    HALLUCINATIONS.iter().any(|h| core == *h)
+}
+
 /// 跑 whisper-cli 對單一 WAV 檔,回 Segments。檔案不存在或 binary 缺則跳過(回空)。
 /// `language`:傳給 whisper 的 `-l` 值(e.g. "zh"/"en"/"auto")。
 /// `traditional`:若 true 則嘗試用 opencc 把輸出轉台灣繁體;opencc 缺就略過。
@@ -146,7 +174,6 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &st
             &wav.to_string_lossy(),
             "-l",
             language,
-            "-sns",
             "--output-json-full",
             "--no-prints",
         ])
@@ -193,6 +220,8 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &st
             return vec![];
         }
     };
+    // 濾掉非語音雜訊 + whisper 靜音幻覺(不再用 -sns —— 那會逼模型把非語音段瞎掰成真詞)。
+    segs.retain(|s| !is_noise_segment(&s.text));
     if traditional {
         // 嘗試 opencc 轉台灣繁體;opencc 不在就略過(graceful)。
         // 第一次轉失敗時印一次提示(呼叫端 per-segment 失敗各自 None 就略過,不重複 eprintln)。
@@ -332,6 +361,22 @@ mod tests {
             is_final: true,
             confidence: None,
         }
+    }
+
+    #[test]
+    fn noise_filter_drops_brackets_and_hallucinations_keeps_real_speech() {
+        // 非語音標註 / ♪ / 空白 → 丟
+        assert!(is_noise_segment("[keyboard clacking]"));
+        assert!(is_noise_segment("（音樂）"));
+        assert!(is_noise_segment("♪ music ♪"));
+        assert!(is_noise_segment("   "));
+        // 已知幻覺片語(含尾標點)→ 丟
+        assert!(is_noise_segment("謝謝大家"));
+        assert!(is_noise_segment("謝謝大家。"));
+        assert!(is_noise_segment("谢谢观看"));
+        // 真講話 → 留(就算含「謝謝大家」也不該整段誤殺)
+        assert!(!is_noise_segment("謝謝大家,辛苦了今天先到這"));
+        assert!(!is_noise_segment("我們下週三前要交版本"));
     }
 
     #[test]

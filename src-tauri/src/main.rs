@@ -245,6 +245,12 @@ fn main() {
                     }
                 })
                 .build(app)?;
+
+            // 預先建好兩個浮動字幕視窗(hidden)。在 startup 建,避免「建完馬上 show」的 race
+            // (build().visible(false) 後立刻 show 時 is_visible 還是 false,視窗沒真的出來)。
+            // 等 set_captions 被呼叫時 → 已 found existing → show 可靠生效。
+            let _ = ensure_caption_window(app.handle(), "caption-sys", 20.0);
+            let _ = ensure_caption_window(app.handle(), "caption-mic", 396.0);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
