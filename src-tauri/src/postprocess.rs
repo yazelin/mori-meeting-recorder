@@ -117,6 +117,11 @@ pub fn diarize_session_inner(
 
     write_labeled_tracks(session_root, &labeled, &speakers)?;
 
+    // 若有可用聲紋庫(模型相符)→ 逐群比對 → 命中改 speakers.json 的 display 成真名。
+    if let Some(reg) = crate::voiceprint::read_registry() {
+        identify_speakers(session_root, &labeled, &reg);
+    }
+
     // 記下這場分人用了哪兩個模型(best-effort,失敗不影響分人結果)。
     stamp_diar_models(session_root);
 
@@ -173,6 +178,51 @@ pub fn reexport_session(session_root: &std::path::Path) -> Result<(), String> {
     std::fs::write(session_root.join("timeline.json"), timeline)
         .map_err(|e| format!("write timeline: {e}"))?;
     Ok(())
+}
+
+/// 對每個講者(群)取其最長一段、切該軌 WAV 那段音訊算聲紋 → best_match → 命中改 speakers.json display。
+fn identify_speakers(session_root: &std::path::Path, labeled: &[crate::transcribe::Segment], reg: &crate::voiceprint::Registry) {
+    use std::collections::HashMap;
+    // 每個 speaker id → 最長段(track + start_ms + end_ms)
+    let mut longest: HashMap<String, &crate::transcribe::Segment> = HashMap::new();
+    for s in labeled {
+        if let Some(spk) = &s.speaker {
+            let dur = s.end_ms.saturating_sub(s.start_ms);
+            longest.entry(spk.clone())
+                .and_modify(|cur| { if dur > cur.end_ms.saturating_sub(cur.start_ms) { *cur = s; } })
+                .or_insert(s);
+        }
+    }
+    let sp_path = session_root.join("transcript").join("speakers.json");
+    let mut speakers = crate::diarize::read_speakers(&sp_path);
+    let mut changed = false;
+    for (spk_id, seg) in longest {
+        let wav_rel = if seg.track == "system" { "audio/system.wav" } else { "audio/mic-internal.wav" };
+        let wav = session_root.join(wav_rel);
+        let emb = match read_wav_slice_f32(&wav, seg.start_ms, seg.end_ms) {
+            Some(s) => match crate::voiceprint::embed_samples(&s, 16_000) { Ok(e) => e, Err(_) => continue },
+            None => continue,
+        };
+        if let Some(p) = crate::voiceprint::best_match(&emb, &reg.people, crate::voiceprint::MATCH_THRESHOLD) {
+            if let Some(si) = speakers.iter_mut().find(|x| x.id == spk_id) {
+                si.display = p.name.clone();
+                changed = true;
+            }
+        }
+    }
+    if changed { let _ = crate::diarize::write_speakers(&sp_path, &speakers); }
+}
+
+/// 讀 16k mono WAV 在 [start_ms,end_ms] 的樣本(f32)。讀不到/空 → None。
+fn read_wav_slice_f32(wav: &std::path::Path, start_ms: u64, end_ms: u64) -> Option<Vec<f32>> {
+    let mut r = hound::WavReader::open(wav).ok()?;
+    let sr = r.spec().sample_rate as u64;
+    let lo = (start_ms * sr / 1000) as usize;
+    let hi = (end_ms * sr / 1000) as usize;
+    let all: Vec<i16> = r.samples::<i16>().filter_map(|x| x.ok()).collect();
+    if lo >= all.len() || hi <= lo { return None; }
+    let hi = hi.min(all.len());
+    Some(all[lo..hi].iter().map(|&v| v as f32 / 32768.0).collect())
 }
 
 #[cfg(test)]
