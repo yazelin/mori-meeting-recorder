@@ -105,9 +105,16 @@ fi
 # sanity test
 echo ""
 echo "==> sanity check"
-"$bin_dir/whisper-cli" --help 2>&1 | head -2 || {
-  echo "✗ whisper-cli 跑不起來 — 可能 shared lib RPATH 沒接好。試 LD_LIBRARY_PATH=$bin_dir ldd $bin_dir/whisper-cli"
+# 只認「shared lib 載不起來」當失敗。whisper-cli --help / 空輸入會 exit 非零(正常),
+# 且 `| head` 會 SIGPIPE 殺掉它 → 不能用 exit code 判斷。改成抓 loading error 字串。
+sanity_out="$("$bin_dir/whisper-cli" --help 2>&1 || true)"
+if printf '%s' "$sanity_out" | grep -q "error while loading shared libraries"; then
+  echo "✗ shared lib 沒接好:"
+  printf '%s\n' "$sanity_out" | grep "error while loading" | head -1
+  echo "  試:LD_LIBRARY_PATH=$bin_dir ldd $bin_dir/whisper-cli"
   exit 1
-}
+fi
+printf '%s\n' "$sanity_out" | head -2
+echo "✓ whisper-cli loads OK"
 echo ""
 echo "✓ ready: $bin_dir/whisper-cli + $model_dir/ggml-small.bin"
