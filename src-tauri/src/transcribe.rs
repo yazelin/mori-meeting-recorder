@@ -128,6 +128,28 @@ fn is_noise_segment(text: &str) -> bool {
 /// `language`:傳給 whisper 的 `-l` 值(e.g. "zh"/"en"/"auto")。
 /// `traditional`:若 true 則嘗試用 opencc 把輸出轉台灣繁體;opencc 缺就略過。
 pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &str, traditional: bool) -> Vec<Segment> {
+    // Engine 邊界:transcribe_raw 回「原始」segments(cli 或共享 whisper-server),
+    // 所有 post-processing 一律在這層做 → 兩條路徑輸出後處理完全一致(noise filter + 繁體)。
+    let mut segs = transcribe_raw(wav, session_id, kind, language);
+    // 濾掉非語音雜訊 + whisper 靜音幻覺(不再用 -sns —— 那會逼模型把非語音段瞎掰成真詞)。
+    segs.retain(|s| !is_noise_segment(&s.text));
+    if traditional {
+        for s in &mut segs {
+            s.text = to_traditional(&s.text);
+        }
+    }
+    segs
+}
+
+/// 依 `config.transcribe_engine` 選引擎,回「原始」segments(未做 noise filter / 繁體轉換)。
+/// auto = 共享 whisper-server(可用時)否則 cli;server = server(不可用 fallback cli);cli = 一律 cli。
+/// (共享 server 路徑於後續 PR 依 whisper-server-contract 接入;目前一律走 cli。)
+fn transcribe_raw(wav: &Path, session_id: &str, kind: SourceKind, language: &str) -> Vec<Segment> {
+    run_whisper_cli(wav, session_id, kind, language)
+}
+
+/// whisper-cli per-call:spawn whisper-cli + parse `--output-json-full` sidecar → 原始 segments。
+fn run_whisper_cli(wav: &Path, session_id: &str, kind: SourceKind, language: &str) -> Vec<Segment> {
     if !wav.exists() {
         return vec![];
     }
@@ -184,21 +206,13 @@ pub fn run_whisper(wav: &Path, session_id: &str, kind: SourceKind, language: &st
             return vec![];
         }
     };
-    let mut segs = match parse_whisper_json(&json, session_id, kind) {
+    match parse_whisper_json(&json, session_id, kind) {
         Ok(segs) => segs,
         Err(e) => {
             eprintln!("parse whisper json: {e}");
-            return vec![];
-        }
-    };
-    // 濾掉非語音雜訊 + whisper 靜音幻覺(不再用 -sns —— 那會逼模型把非語音段瞎掰成真詞)。
-    segs.retain(|s| !is_noise_segment(&s.text));
-    if traditional {
-        for s in &mut segs {
-            s.text = to_traditional(&s.text);
+            vec![]
         }
     }
-    segs
 }
 
 /// 把 whisper 跑「短段」出來的 segment(段內相對時間)平移成「整場絕對時間」。

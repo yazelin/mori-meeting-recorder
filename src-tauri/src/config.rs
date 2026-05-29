@@ -26,6 +26,11 @@ fn default_model() -> String {
     // 對應 ~/.mori/models/ggml-<model>.bin。目前 UI 給兩個:small / large-v3-turbo。
     "small".to_string()
 }
+fn default_transcribe_engine() -> String {
+    // auto = 有共享 whisper-server 就用、否則 cli;cli = 一律 per-call whisper-cli;server = 偏 server。
+    // 見 agentos-notebook/05-mori-migration/whisper-server-contract.md §3.4。
+    "auto".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RecorderConfig {
@@ -43,6 +48,8 @@ pub struct RecorderConfig {
     pub traditional: bool,
     #[serde(default = "default_model")]
     pub model: String,
+    #[serde(default = "default_transcribe_engine")]
+    pub transcribe_engine: String,
 }
 
 impl Default for RecorderConfig {
@@ -55,6 +62,7 @@ impl Default for RecorderConfig {
             language: default_language(),
             traditional: default_traditional(),
             model: default_model(),
+            transcribe_engine: default_transcribe_engine(),
         }
     }
 }
