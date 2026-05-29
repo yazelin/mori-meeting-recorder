@@ -82,6 +82,14 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   const [speakerEdits, setSpeakerEdits] = useState<Record<string, string>>({});
   const [speakerSaving, setSpeakerSaving] = useState<Record<string, boolean>>({});
 
+  // Speaker merge selection
+  const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
+  const [merging, setMerging] = useState(false);
+  const [mergeErr, setMergeErr] = useState<string | null>(null);
+
+  // Per-segment speaker reassign loading
+  const [segSaving, setSegSaving] = useState<Record<string, boolean>>({});
+
   const loadAll = useCallback(async () => {
     setLoadErr(null);
     try {
@@ -107,6 +115,25 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
     }
   }, [sessionId]);
 
+  // Reload only speakers + transcript (used after diarize / merge / rename)
+  const reloadSpeakersAndTranscript = useCallback(async () => {
+    const [spk, segs] = await Promise.all([
+      invoke<SpeakerInfo[]>("read_speakers_cmd", { sessionId }),
+      invoke<Segment[]>("read_session_transcript", { sessionId }),
+    ]);
+    setSpeakers(spk);
+    const edits: Record<string, string> = {};
+    spk.forEach((s) => { edits[s.id] = s.display; });
+    setSpeakerEdits(edits);
+    setSegments(segs);
+  }, [sessionId]);
+
+  // Reload only transcript (used after per-segment reassign)
+  const reloadTranscript = useCallback(async () => {
+    const segs = await invoke<Segment[]>("read_session_transcript", { sessionId });
+    setSegments(segs);
+  }, [sessionId]);
+
   useEffect(() => {
     setLoading(true);
     loadAll();
@@ -126,6 +153,11 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   };
 
   const runDiarize = async () => {
+    // Confirm if already diarized
+    if (speakers.length > 0) {
+      const ok = window.confirm(t("workspace.diar_rerun_confirm"));
+      if (!ok) return;
+    }
     setDiarErr(null);
     setDiarHint(null);
     // Check model presence first
@@ -139,15 +171,8 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
     try {
       await invoke("diarize_session", { sessionId });
       // Reload speakers + transcript after diarization
-      const [spk, segs] = await Promise.all([
-        invoke<SpeakerInfo[]>("read_speakers_cmd", { sessionId }),
-        invoke<Segment[]>("read_session_transcript", { sessionId }),
-      ]);
-      setSpeakers(spk);
-      const edits: Record<string, string> = {};
-      spk.forEach((s) => { edits[s.id] = s.display; });
-      setSpeakerEdits(edits);
-      setSegments(segs);
+      await reloadSpeakersAndTranscript();
+      setSelectedSpeakers([]);
     } catch (e: any) {
       setDiarErr(String(e));
     } finally {
@@ -172,6 +197,51 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
     }
   };
 
+  const mergeSpeakers = async () => {
+    if (selectedSpeakers.length < 2) return;
+    setMergeErr(null);
+    setMerging(true);
+    try {
+      // keepId = first selected in speakers-list order; mergeIds = the rest
+      const orderedSelected = speakers
+        .map((s) => s.id)
+        .filter((id) => selectedSpeakers.includes(id));
+      const keepId = orderedSelected[0];
+      const mergeIds = orderedSelected.slice(1);
+      await invoke("merge_speakers", { sessionId, keepId, mergeIds });
+      setSelectedSpeakers([]);
+      await reloadSpeakersAndTranscript();
+    } catch (e: any) {
+      setMergeErr(String(e));
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  const toggleSpeakerSelection = (id: string) => {
+    setSelectedSpeakers((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const setSegmentSpeaker = async (seg: Segment, speakerId: string) => {
+    const key = `${seg.track}-${seg.id}`;
+    setSegSaving((prev) => ({ ...prev, [key]: true }));
+    try {
+      await invoke("set_segment_speaker", {
+        sessionId,
+        track: seg.track,
+        segId: seg.id,
+        speakerId,
+      });
+      await reloadTranscript();
+    } catch (e: any) {
+      console.error("set_segment_speaker:", e);
+    } finally {
+      setSegSaving((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
   const reexport = async () => {
     setReexportErr(null);
     setReexportMsg(null);
@@ -190,6 +260,12 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   // Build speaker display map for transcript rendering
   const speakerDisplay: Record<string, string> = {};
   speakers.forEach((s) => { speakerDisplay[s.id] = s.display; });
+
+  // Speaker options for per-segment Select
+  const speakerOptions: SelectOption[] = speakers.map((s) => ({
+    value: s.id,
+    label: s.display,
+  }));
 
   // Participant name suggestions from current participants field
   const participantOptions: SelectOption[] = [
@@ -277,12 +353,41 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
         <>
           <h4>{t("workspace.speakers_title")}</h4>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {/* Merge action bar */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <button
+                className="mmr-btn"
+                onClick={mergeSpeakers}
+                disabled={selectedSpeakers.length < 2 || merging}
+              >
+                {merging
+                  ? <><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("workspace.merging")}</>
+                  : t("workspace.merge_btn")}
+              </button>
+              {selectedSpeakers.length >= 2 && (
+                <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                  {t("workspace.merge_hint", { count: selectedSpeakers.length })}
+                </span>
+              )}
+              {mergeErr && (
+                <span style={{ fontSize: 11, color: "var(--danger-color)" }}>{mergeErr}</span>
+              )}
+            </div>
+
             {speakers.map((spk) => {
               const editVal = speakerEdits[spk.id] ?? spk.display;
               const saving = speakerSaving[spk.id] ?? false;
               const hasParticipants = splitParticipants(participants).length > 0;
+              const isSelected = selectedSpeakers.includes(spk.id);
               return (
                 <div key={spk.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {/* Checkbox for merge selection */}
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSpeakerSelection(spk.id)}
+                    style={{ accentColor: "var(--accent-color)", flexShrink: 0, cursor: "pointer" }}
+                  />
                   <code style={{ fontSize: 10.5, color: "var(--text-dim)", minWidth: 72, fontFamily: "ui-monospace, monospace" }}>
                     {spk.id}
                   </code>
@@ -335,32 +440,64 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
           }}
         >
           {segments.map((seg) => {
+            const segKey = `${seg.track}-${seg.id}`;
             const display = seg.speaker ? (speakerDisplay[seg.speaker] ?? seg.speaker) : t("workspace.unknown_speaker");
+            const isSaving = segSaving[segKey] ?? false;
             return (
-              <div key={`${seg.track}-${seg.id}`} style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 12, lineHeight: 1.5 }}>
-                <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 10, color: "var(--text-dim)", flexShrink: 0, paddingTop: 1 }}>
+              <div key={segKey} style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 12, lineHeight: 1.5, alignItems: "flex-start" }}>
+                <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 10, color: "var(--text-dim)", flexShrink: 0, paddingTop: 3 }}>
                   {fmtMs(seg.start_ms)}
                 </span>
-                <span style={{ color: "var(--text-secondary)", flexShrink: 0 }}>
-                  {display}
-                  {seg.speaker_mixed && (
-                    <span
-                      className="mori-pill-badge"
-                      style={{
-                        marginLeft: 4,
-                        fontSize: 9,
-                        padding: "1px 5px",
-                        borderRadius: 999,
-                        background: "var(--pill-bg)",
-                        color: "var(--text-dim)",
-                        verticalAlign: "middle",
-                      }}
-                    >
-                      {t("workspace.mixed_badge")}
-                    </span>
-                  )}
-                  {":"}
-                </span>
+                {/* Per-segment speaker Select (only when speakers exist) */}
+                {speakerOptions.length > 0 ? (
+                  <span style={{ flexShrink: 0, position: "relative" }}>
+                    <Select
+                      value={seg.speaker ?? ""}
+                      options={speakerOptions}
+                      onChange={(newId) => setSegmentSpeaker(seg, newId)}
+                    />
+                    {isSaving && (
+                      <span className="spinner-rotate" style={{ fontSize: 10, color: "var(--text-dim)", position: "absolute", top: 0, right: -14 }}>↻</span>
+                    )}
+                  </span>
+                ) : (
+                  <span style={{ color: "var(--text-secondary)", flexShrink: 0 }}>
+                    {display}
+                    {seg.speaker_mixed && (
+                      <span
+                        className="mori-pill-badge"
+                        style={{
+                          marginLeft: 4,
+                          fontSize: 9,
+                          padding: "1px 5px",
+                          borderRadius: 999,
+                          background: "var(--pill-bg)",
+                          color: "var(--text-dim)",
+                          verticalAlign: "middle",
+                        }}
+                      >
+                        {t("workspace.mixed_badge")}
+                      </span>
+                    )}
+                    {":"}
+                  </span>
+                )}
+                {seg.speaker_mixed && speakerOptions.length > 0 && (
+                  <span
+                    className="mori-pill-badge"
+                    style={{
+                      flexShrink: 0,
+                      fontSize: 9,
+                      padding: "1px 5px",
+                      borderRadius: 999,
+                      background: "var(--pill-bg)",
+                      color: "var(--text-dim)",
+                      alignSelf: "center",
+                    }}
+                  >
+                    {t("workspace.mixed_badge")}
+                  </span>
+                )}
                 <span style={{ color: "var(--text)" }}>{seg.text}</span>
               </div>
             );
