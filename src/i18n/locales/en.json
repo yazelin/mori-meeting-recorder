@@ -12,6 +12,7 @@
     "sessions": "Sessions",
     "deps": "Deps",
     "live": "Live",
+    "people": "People",
     "settings": "Settings"
   },
   "record": {
@@ -101,6 +102,31 @@
     "reexport_btn": "Re-export",
     "reexporting": "Exporting…",
     "reexport_ok": "Export complete"
+  },
+  "people": {
+    "title": "People",
+    "checking": "Checking models…",
+    "no_model_hint": "The diarization model is required for voiceprint enrollment. Please download it in the Deps tab first.",
+    "auto_name_hint": "Enrolled speakers will be automatically named when diarizing a meeting.",
+    "enroll_title": "Enroll a speaker",
+    "name_placeholder": "Name",
+    "start_record": "Start recording",
+    "finish": "Done",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "recording_label": "Recording",
+    "speak_hint": "Speak continuously for about 30 seconds, then press Done.",
+    "list_title": "Enrolled people",
+    "list_empty": "No one enrolled yet.",
+    "sample_count": "{{count}} sample(s)",
+    "reenroll": "Add sample",
+    "reenroll_title": "Record an additional voice sample",
+    "rename": "Rename",
+    "rename_title": "Edit display name",
+    "rename_save": "Save",
+    "rename_cancel": "Cancel",
+    "delete": "Delete",
+    "delete_title": "Remove this person's voiceprint"
   },
   "deps": {
     "title": "Dependency check",

@@ -48,6 +48,7 @@ pub struct Recorder {
     pub sys_progress: TrackProgress,
     pub mic_progress: TrackProgress,
     pub voice: Mutex<Option<VoiceCapture>>,
+    pub enroll: Mutex<Option<VoiceCapture>>,
 }
 
 impl Default for Recorder {
@@ -58,6 +59,7 @@ impl Default for Recorder {
             sys_progress: TrackProgress::default(),
             mic_progress: TrackProgress::default(),
             voice: Mutex::new(None),
+            enroll: Mutex::new(None),
         }
     }
 }
@@ -399,6 +401,59 @@ impl Recorder {
             .collect::<Vec<_>>()
             .join(" ");
         Ok(text)
+    }
+
+    /// 聲紋錄音開始:把麥克風錄到 ~/.mori/voiceprints/enroll-temp.wav(不轉錄,僅供 embed)。
+    /// 沿用 VoiceCapture 機制;用獨立 `enroll` 欄位,可與 voice_input 並存(但實際上不建議同時用)。
+    pub fn enroll_record_start(&self) -> Result<(), String> {
+        let mut guard = self.enroll.lock().map_err(|e| e.to_string())?;
+        if guard.is_some() {
+            return Err("enroll recording already running".into());
+        }
+        let dir = dirs::home_dir().unwrap_or_default().join(".mori").join("voiceprints");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir voiceprints: {e}"))?;
+        let temp_path = dir.join("enroll-temp.wav");
+        let vad_cfg = crate::audio::vad::VadConfig {
+            silence_split_ms: 600,
+            silence_threshold_db: -45.0,
+            min_speech_secs: 0.5,
+            max_segment_secs: 120.0,
+        };
+        let dummy_pending = Arc::new(AtomicUsize::new(0));
+        let (handle, _rx) =
+            audio::open_capture(SourceKind::MicInternal, temp_path.clone(), vad_cfg, dummy_pending)?;
+        *guard = Some(VoiceCapture { handle, temp_path });
+        Ok(())
+    }
+
+    /// 聲紋錄音停止:停 capture → 回 temp WAV 路徑(不刪不轉錄)。
+    pub fn enroll_record_stop(&self) -> Result<PathBuf, String> {
+        let vc = self
+            .enroll
+            .lock()
+            .map_err(|e| e.to_string())?
+            .take()
+            .ok_or("no enroll recording running")?;
+        vc.handle.stop_flag.store(true, Ordering::Relaxed);
+        let _ = vc.handle.writer_handle.join();
+        Ok(vc.temp_path)
+    }
+
+    /// 聲紋錄音取消:停 capture → 刪 temp WAV(不嵌入、不碰 registry)。
+    /// 若目前沒在錄音則 no-op(同 enroll_record_stop 的 empty 處理方式:直接 Ok)。
+    pub fn enroll_record_cancel(&self) -> Result<(), String> {
+        let vc = self
+            .enroll
+            .lock()
+            .map_err(|e| e.to_string())?
+            .take();
+        let Some(vc) = vc else {
+            return Ok(()); // no-op: nothing was recording
+        };
+        vc.handle.stop_flag.store(true, Ordering::Relaxed);
+        let _ = vc.handle.writer_handle.join();
+        let _ = std::fs::remove_file(&vc.temp_path);
+        Ok(())
     }
 
     /// 把本場主題 / 參與者寫進當前 session 的 meeting-info.json(PR H 整理會議記錄時讀)。

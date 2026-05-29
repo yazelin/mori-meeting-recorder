@@ -12,6 +12,7 @@
     "sessions": "Sessions",
     "deps": "Deps",
     "live": "字幕",
+    "people": "人員",
     "settings": "設定"
   },
   "record": {
@@ -101,6 +102,31 @@
     "reexport_btn": "重新匯出",
     "reexporting": "匯出中…",
     "reexport_ok": "匯出完成"
+  },
+  "people": {
+    "title": "人員",
+    "checking": "檢查模型中…",
+    "no_model_hint": "需要先到「Deps」分頁下載分人模型,才能使用聲紋註冊功能。",
+    "auto_name_hint": "錄好的人,做會議紀錄分人時會自動標上名字。",
+    "enroll_title": "聲紋註冊",
+    "name_placeholder": "姓名",
+    "start_record": "開始錄音",
+    "finish": "完成",
+    "saving": "儲存中…",
+    "cancel": "取消",
+    "recording_label": "錄音中",
+    "speak_hint": "請持續說話約 30 秒,完成後按「完成」。",
+    "list_title": "已註冊人員",
+    "list_empty": "尚未註冊任何人。",
+    "sample_count": "{{count}} 個樣本",
+    "reenroll": "補錄",
+    "reenroll_title": "再錄一段聲音補充樣本",
+    "rename": "改名",
+    "rename_title": "修改顯示名稱",
+    "rename_save": "儲存",
+    "rename_cancel": "取消",
+    "delete": "刪除",
+    "delete_title": "移除此人的聲紋"
   },
   "deps": {
     "title": "依賴檢查",
