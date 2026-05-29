@@ -73,7 +73,7 @@ pub fn remove_descriptor() {
 }
 
 /// pid 是否還活著。Linux 看 `/proc/<pid>`;其他平台保守回 true,靠 health GET 把關。
-fn pid_alive(pid: u32) -> bool {
+pub fn pid_alive(pid: u32) -> bool {
     #[cfg(target_os = "linux")]
     {
         std::path::Path::new(&format!("/proc/{pid}")).exists()
