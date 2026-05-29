@@ -109,9 +109,18 @@ pub struct RecorderStatus {
 
 impl Recorder {
     pub fn start_session(&self, app: tauri::AppHandle) -> Result<String, String> {
+        // **全域鎖序 active→state**(start/stop/status 一律先 active 後 state)防 AB-BA deadlock:
+        // 之前 start 持 active 再取 state、而 status 持 state 再取 active,前端每隔幾百 ms 的
+        // status poll 撞上正在開場(持 active 數百 ms 跑 open_capture)就會互卡死。先取 active。
         let mut active_guard = self.active.lock().map_err(|e| e.to_string())?;
         if active_guard.is_some() {
             return Err("session already running".into());
+        }
+        // 上一場 stop 後是「非阻塞」收尾(背景 drain + 匯出),期間 state=Transcribing、active=None。
+        // 此時開新場會 reset 共用進度計數、且舊收尾執行緒結束時把 state 打回 Idle → 打架,擋住。
+        // 在持有 active 下驗 state(active→state):收尾執行緒設 Idle 也須先過 state lock,序一致。
+        if *self.state.lock().map_err(|e| e.to_string())? == State::Transcribing {
+            return Err("上一場仍在轉錄,待轉錄完成再開始新錄音".into());
         }
         let now = Local::now();
         let session_id = new_session_id(now);
@@ -217,30 +226,64 @@ impl Recorder {
         Ok(session_id)
     }
 
+    /// 停止錄音 —— **非阻塞**:立刻停 capture、標記 Transcribing、把「等 worker 把佇列剩餘段
+    /// 轉完 + 彙整 + 匯出」丟到背景執行緒,command 立刻返回 session_id。
+    ///
+    /// 之前這裡同步 `join` worker:turbo-on-CPU 每段都重載模型要好幾秒,佇列沒清完 stop 不返回
+    /// → UI 看似卡死、且 state 卡 Transcribing 連帶開不了新場(「按了沒反應、也開不了新的」)。
+    /// 改背景收尾後:UI 全程看得到「剩 N 段」倒數(進度計數在 Recorder 上、active 拿走也讀得到),
+    /// 收尾完成才 → Idle。共享 whisper-server(快)會讓這段 drain 很短;cli fallback 則靠背景化不卡 UI。
     pub fn stop_session(&self) -> Result<String, String> {
         let mut active_guard = self.active.lock().map_err(|e| e.to_string())?;
         let session = active_guard.take().ok_or("no active session")?;
+        // 持 active 下設 Transcribing(active→state,與 start/status 同鎖序),設完才放 active,
+        // 避免「active 已 None 但 state 還 Recording」的空窗被 status 讀到。
+        *self.state.lock().map_err(|e| e.to_string())? = State::Transcribing;
         drop(active_guard);
 
-        *self.state.lock().map_err(|e| e.to_string())? = State::Transcribing;
-
         let session_id = session.store.session_id.clone();
-        let store = session.store;
-        let started_at = session.started_at;
 
-        // 1. 停 capture:stop_flag → capture thread flush VadChunker → 送最後段 → drop Sender。
+        // 先通知 capture 停(送最後一段 VAD → drop Sender,worker recv 才收得到 Err 收尾)。
         for h in &session.handles {
             h.stop_flag.store(true, Ordering::Relaxed);
         }
+
+        // 背景收尾。catch_unwind 包住:即使 finalize panic(理論上不會)也保證 state 打回 Idle,
+        // 否則永遠卡 Transcribing → 再也開不了新場(比卡死更糟,因為沒任何路徑能恢復)。
+        let recorder = instance();
+        std::thread::spawn(move || {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                recorder.finalize_session(session)
+            }));
+            match outcome {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => eprintln!("[stop] finalize failed: {e}"),
+                Err(_) => eprintln!("[stop] finalize panicked; forcing state→Idle"),
+            }
+            if let Ok(mut st) = recorder.state.lock() {
+                *st = State::Idle;
+            }
+        });
+
+        Ok(session_id)
+    }
+
+    /// 背景收尾:join capture writer + worker(等佇列 drain 完)→ 讀回兩軌 jsonl 彙整 → 匯出三檔。
+    /// 不碰 `state`(由 stop_session 的背景執行緒在結束時統一設 Idle,確保出錯也會回 Idle)。
+    fn finalize_session(&self, session: ActiveSession) -> Result<(), String> {
+        let store = session.store;
+        let started_at = session.started_at;
+        let session_id = store.session_id.clone();
+
+        // 1. capture thread flush VadChunker → 送最後段 → drop Sender。
         for h in session.handles {
             let _ = h.writer_handle.join();
         }
-        // 2. capture thread 已 drop Sender → 各 worker recv() 收到 Err → loop 結束。
-        //    join 等 worker 把佇列裡剩餘的段轉完(jsonl 已由 worker 即時 append)。
+        // 2. Sender 已 drop → 各 worker recv() 收到 Err → loop 結束;join 等它把佇列剩餘段轉完。
         for w in session.workers {
             let _ = w.handle.join();
         }
-        // 3. 讀回兩軌 jsonl 彙整(不再 stop 時 batch 轉整檔)。
+        // 3. 讀回兩軌 jsonl 彙整(jsonl 已由 worker 即時 append,不再 stop 時 batch 轉整檔)。
         let sys_segs = crate::transcribe::read_segments_jsonl(
             &store.segments_path(SourceKind::MeetingSystem),
         );
@@ -248,7 +291,6 @@ impl Recorder {
             &store.segments_path(SourceKind::MicInternal),
         );
 
-        // 匯出
         let stopped_at = Local::now();
         let all_segs: Vec<Segment> = sys_segs.iter().chain(mic_segs.iter()).cloned().collect();
         let meta = SessionMeta {
@@ -284,9 +326,7 @@ impl Recorder {
         std::fs::write(store.public_md_path(), pub_md).map_err(|e| format!("write public.md: {e}"))?;
         std::fs::write(store.internal_md_path(), int_md).map_err(|e| format!("write internal.md: {e}"))?;
         std::fs::write(store.timeline_path(), timeline).map_err(|e| format!("write timeline.json: {e}"))?;
-
-        *self.state.lock().map_err(|e| e.to_string())? = State::Idle;
-        Ok(session_id)
+        Ok(())
     }
 
     /// 語音輸入開始:獨立錄一小段麥克風(跟會議錄音無關)寫進 temp WAV。VAD 段的 receiver
@@ -353,8 +393,10 @@ impl Recorder {
     }
 
     pub fn status(&self) -> RecorderStatus {
-        let state = *self.state.lock().unwrap_or_else(|e| e.into_inner());
+        // 鎖序 active→state(與 start/stop 一致)防 AB-BA deadlock;兩者一起持有取得一致快照
+        // (否則 state 已轉 Transcribing 但 active 還沒被拿走、或反之,會回出自相矛盾的狀態)。
         let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        let state = *self.state.lock().unwrap_or_else(|e| e.into_inner());
         let now_ms = chrono::Utc::now().timestamp_millis() as u64;
         let (elapsed_secs, system_signal, mic_signal, session_id, levels) = if let Some(s) = active.as_ref() {
             let elapsed = (Local::now() - s.started_at).num_seconds().max(0) as u64;
