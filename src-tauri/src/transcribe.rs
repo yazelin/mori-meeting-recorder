@@ -355,6 +355,22 @@ pub fn shift_segments_by_offset(mut segs: Vec<Segment>, offset_ms: u64) -> Vec<S
     segs
 }
 
+/// 原子覆寫整個 jsonl(tmp+rename,一行一 segment)。diarization 標回稿用 —— 取代「刪檔再 append」
+/// 的資料遺失風險(append 失敗時原稿不會先被刪掉)。
+pub fn write_segments_jsonl(path: &std::path::Path, segs: &[Segment]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir transcript dir: {e}"))?;
+    }
+    let mut body = String::new();
+    for s in segs {
+        body.push_str(&serde_json::to_string(s).map_err(|e| format!("serialize segment: {e}"))?);
+        body.push('\n');
+    }
+    let tmp = path.with_extension("jsonl.tmp");
+    std::fs::write(&tmp, body).map_err(|e| format!("write tmp jsonl: {e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("rename jsonl: {e}"))
+}
+
 /// Append segments 到 jsonl(一行一 segment),建立父目錄。跟 Phase 1 batch 格式一致。
 pub fn append_segments_jsonl(path: &std::path::Path, segs: &[Segment]) -> Result<(), String> {
     use std::io::Write;
@@ -504,6 +520,21 @@ mod tests {
         let shifted = shift_segments_by_offset(vec![sample_seg()], 10_000);
         assert_eq!(shifted[0].start_ms, 10_100);
         assert_eq!(shifted[0].end_ms, 10_500);
+    }
+
+    #[test]
+    fn write_jsonl_atomic_overwrite() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("transcript").join("system.segments.jsonl");
+        let seg = sample_seg();
+        // 第一次寫:2 個 segment
+        write_segments_jsonl(&path, &[seg.clone(), seg.clone()]).unwrap();
+        let segs1 = read_segments_jsonl(&path);
+        assert_eq!(segs1.len(), 2, "first write should have 2 segments");
+        // 第二次寫(覆寫):仍然只有 2 個,不是 4(驗 overwrite 語意)
+        write_segments_jsonl(&path, &[seg.clone(), seg.clone()]).unwrap();
+        let segs2 = read_segments_jsonl(&path);
+        assert_eq!(segs2.len(), 2, "overwrite should still have 2 segments, not 4");
     }
 
     #[test]
