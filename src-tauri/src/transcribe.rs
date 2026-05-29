@@ -289,7 +289,7 @@ pub fn spawn_transcribe_worker(
 ) -> TranscribeWorker {
     let handle = std::thread::spawn(move || {
         while let Ok(seg) = speech_rx.recv() {
-            pending.fetch_add(1, Ordering::Relaxed);
+            // pending 在 capture 送進 channel 時就 +1(見 audio/*),這裡只在轉完時 -1。
             // 寫 temp WAV
             let tmp = std::env::temp_dir().join(format!(
                 "mori-live-{}-{}.wav",

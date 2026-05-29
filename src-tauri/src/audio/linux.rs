@@ -12,7 +12,7 @@ use libpulse_binding::stream::Direction;
 use libpulse_simple_binding::Simple;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 const TARGET_RATE: u32 = 16_000;
@@ -105,6 +105,7 @@ pub fn open_capture(
     source: SourceKind,
     out_path: PathBuf,
     vad_cfg: crate::audio::vad::VadConfig,
+    pending: Arc<AtomicUsize>,
 ) -> Result<crate::audio::CaptureResult, String> {
     let source_name = pick_source(source)?;
     let spec = Spec {
@@ -176,7 +177,9 @@ pub fn open_capture(
                         s.last_sample_at_unix_ms = now;
                     }
                     // VAD:用 raw rms(smooth 前的真實瞬時值)判切點;切出的段送 worker。
+                    // pending++ 在「送進 channel」時(不是 worker 收到時)→ 計到的是真實佇列深度。
                     if let Some(seg) = chunker.push(&samples, rms_db_raw) {
+                        pending.fetch_add(1, Ordering::Relaxed);
                         let _ = speech_tx.send(seg);
                     }
                     // 寫 WAV
@@ -194,6 +197,7 @@ pub fn open_capture(
         }
         // stop_flag set → flush VadChunker 最後一段 → drop simple → finalize WAV
         if let Some(seg) = chunker.flush() {
+            pending.fetch_add(1, Ordering::Relaxed);
             let _ = speech_tx.send(seg);
         }
         // speech_tx drop(離開 scope)→ worker recv() 收到 Err → worker loop 結束。

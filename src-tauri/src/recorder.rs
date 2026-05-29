@@ -127,7 +127,11 @@ impl Recorder {
         let mut workers = Vec::new();
         for kind in [SourceKind::MeetingSystem, SourceKind::MicInternal] {
             let out = store.audio_path(kind);
-            match audio::open_capture(kind, out, vad_cfg.clone()) {
+            let prog = match kind {
+                SourceKind::MeetingSystem => &self.sys_progress,
+                SourceKind::MicInternal => &self.mic_progress,
+            };
+            match audio::open_capture(kind, out, vad_cfg.clone(), prog.pending.clone()) {
                 Ok((h, rx)) => {
                     // 前端 LiveTab 用 "sys"/"mic" 兩欄(不是 track_name 的 system/mic-internal)
                     let track = match kind {
@@ -137,10 +141,6 @@ impl Recorder {
                     let jsonl = store.segments_path(kind);
                     let sid = session_id.clone();
                     let app_for_worker = app.clone();
-                    let prog = match kind {
-                        SourceKind::MeetingSystem => &self.sys_progress,
-                        SourceKind::MicInternal => &self.mic_progress,
-                    };
                     let worker = crate::transcribe::spawn_transcribe_worker(
                         rx,
                         sid,

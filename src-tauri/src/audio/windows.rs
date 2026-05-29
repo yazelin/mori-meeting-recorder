@@ -8,7 +8,7 @@ use super::{writer::TrackWriter, CaptureHandle, SignalMeter, SourceKind};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, SampleRate, StreamConfig};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 const TARGET_RATE: u32 = 16_000;
@@ -29,6 +29,7 @@ pub fn open_capture(
     source: SourceKind,
     out_path: PathBuf,
     vad_cfg: crate::audio::vad::VadConfig,
+    pending: Arc<AtomicUsize>,
 ) -> Result<crate::audio::CaptureResult, String> {
     let device = pick_device(source)?;
     let default_config = match source {
@@ -63,12 +64,13 @@ pub fn open_capture(
     let signal_cb = signal.clone();
     let chunker_cb = chunker.clone();
     let tx_cb = speech_tx.clone();
+    let pending_cb = pending.clone();
 
     let stream = match sample_format {
         SampleFormat::F32 => device.build_input_stream(
             &config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                handle_chunk_f32(data, in_channels, resample_ratio, &writer_cb, &signal_cb, &chunker_cb, &tx_cb);
+                handle_chunk_f32(data, in_channels, resample_ratio, &writer_cb, &signal_cb, &chunker_cb, &tx_cb, &pending_cb);
             },
             err_fn,
             None,
@@ -78,11 +80,12 @@ pub fn open_capture(
             let signal_cb_i = signal_cb.clone();
             let chunker_cb_i = chunker_cb.clone();
             let tx_cb_i = tx_cb.clone();
+            let pending_cb_i = pending_cb.clone();
             device.build_input_stream(
                 &config,
                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                     let f: Vec<f32> = data.iter().map(|&x| x as f32 / 32_768.0).collect();
-                    handle_chunk_f32(&f, in_channels, resample_ratio, &writer_cb_i, &signal_cb_i, &chunker_cb_i, &tx_cb_i);
+                    handle_chunk_f32(&f, in_channels, resample_ratio, &writer_cb_i, &signal_cb_i, &chunker_cb_i, &tx_cb_i, &pending_cb_i);
                 },
                 err_fn,
                 None,
@@ -97,6 +100,7 @@ pub fn open_capture(
     let stop_for_thread = stop_flag.clone();
     let writer_for_finalize = writer.clone();
     let chunker_for_flush = chunker.clone();
+    let pending_for_flush = pending.clone();
     let writer_thread = std::thread::spawn(move || {
         while !stop_for_thread.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -105,6 +109,7 @@ pub fn open_capture(
         // flush VadChunker 最後一段,再 drop tx → worker recv Err → 結束。
         if let Ok(mut c) = chunker_for_flush.lock() {
             if let Some(seg) = c.flush() {
+                pending_for_flush.fetch_add(1, Ordering::Relaxed);
                 let _ = speech_tx.send(seg);
             }
         }
@@ -139,6 +144,7 @@ fn handle_chunk_f32(
     signal: &Arc<Mutex<SignalMeter>>,
     chunker: &Arc<Mutex<crate::audio::vad::VadChunker>>,
     speech_tx: &std::sync::mpsc::Sender<crate::audio::vad::SpeechSegment>,
+    pending: &Arc<AtomicUsize>,
 ) {
     let mono: Vec<f32> = if in_channels == 1 {
         samples.to_vec()
@@ -171,6 +177,7 @@ fn handle_chunk_f32(
         // VAD:用 raw rms 判切點(對齊 linux.rs);切出的段送 worker。
         if let Ok(mut c) = chunker.lock() {
             if let Some(seg) = c.push(&out_i16, rms_db_raw) {
+                pending.fetch_add(1, Ordering::Relaxed);
                 let _ = speech_tx.send(seg);
             }
         }

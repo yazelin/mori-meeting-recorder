@@ -49,7 +49,7 @@ export default function TrackPanel({ kind, label, sourceName, level, progress }:
         {progress && (
           <span className="track-panel-prog">
             {t("record.seg_done", { n: progress.done })}
-            {progress.pending > 0 && <span className="tp-live"> · {t("capsule.transcribing")}</span>}
+            {progress.pending > 0 && <span className="tp-live"> · {t("record.seg_pending", { n: progress.pending })}</span>}
           </span>
         )}
       </div>
