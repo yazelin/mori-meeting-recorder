@@ -19,6 +19,10 @@ type Status = {
   system_signal: boolean;
   mic_signal: boolean;
   levels: LevelsPayload | null;
+  sys_pending: number;
+  sys_done: number;
+  mic_pending: number;
+  mic_done: number;
 };
 
 const fmtElapsed = (s: number) => {
@@ -117,6 +121,24 @@ export default function RecordTab() {
         sourceName={t("record.source_mic")}
         level={levels?.mic ?? null}
       />
+
+      <div className="transcribe-progress">
+        <div className="tp-title">{t("record.transcribe_progress")}</div>
+        <div className="tp-row">
+          <span className="tp-track sys">{t("capsule.system_pill")}</span>
+          <span className="tp-done">{t("record.seg_done", { n: status?.sys_done ?? 0 })}</span>
+          {(status?.sys_pending ?? 0) > 0 && (
+            <span className="tp-pending">{t("record.seg_pending", { n: status?.sys_pending ?? 0 })}</span>
+          )}
+        </div>
+        <div className="tp-row">
+          <span className="tp-track mic">{t("capsule.mic_pill")}</span>
+          <span className="tp-done">{t("record.seg_done", { n: status?.mic_done ?? 0 })}</span>
+          {(status?.mic_pending ?? 0) > 0 && (
+            <span className="tp-pending">{t("record.seg_pending", { n: status?.mic_pending ?? 0 })}</span>
+          )}
+        </div>
+      </div>
 
       {err && (
         <div className="callout" style={{ marginTop: 12, color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.30)", background: "rgba(255,99,99,0.08)" }}>

@@ -699,3 +699,19 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 
 /* header CC(浮動字幕開關)— icon-btn 裝文字,active 時橘色 */
 .icon-btn.active { color: var(--accent); background: var(--btn-bg); }
+
+/* 錄音頁 — 轉錄進度區(每軌 已轉 N / 剩 M) */
+.transcribe-progress {
+  margin-top: 14px; padding: 10px 12px;
+  border: 0.5px solid var(--border); border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.tp-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+.tp-row { display: flex; align-items: center; gap: 10px; font-size: 12px; margin-bottom: 4px; }
+.tp-track { min-width: 96px; color: var(--text); }
+.tp-track.sys::before { content: "● "; color: var(--found-color); }
+.tp-track.mic::before { content: "● "; color: var(--waiting-color); }
+.tp-done { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.tp-pending {
+  margin-left: auto; font-size: 11px; color: var(--accent); font-variant-numeric: tabular-nums;
+}

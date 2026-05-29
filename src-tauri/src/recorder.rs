@@ -7,7 +7,7 @@ use crate::transcribe::{Segment};
 use tauri::Emitter;
 use chrono::{DateTime, Local};
 use serde::Serialize;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -25,9 +25,19 @@ pub struct ActiveSession {
     pub workers: Vec<crate::transcribe::TranscribeWorker>,
 }
 
+/// per-track 轉錄進度。放 Recorder(singleton)而非 ActiveSession,這樣 stop 把 active
+/// 拿走後、worker 還在 drain 佇列時,status() 仍讀得到「剩幾段」。
+#[derive(Default)]
+pub struct TrackProgress {
+    pub pending: Arc<AtomicUsize>,
+    pub done: Arc<AtomicUsize>,
+}
+
 pub struct Recorder {
     pub active: Mutex<Option<ActiveSession>>,
     pub state: Mutex<State>,
+    pub sys_progress: TrackProgress,
+    pub mic_progress: TrackProgress,
 }
 
 impl Default for Recorder {
@@ -35,6 +45,8 @@ impl Default for Recorder {
         Self {
             active: Mutex::new(None),
             state: Mutex::new(State::Idle),
+            sys_progress: TrackProgress::default(),
+            mic_progress: TrackProgress::default(),
         }
     }
 }
@@ -80,6 +92,10 @@ pub struct RecorderStatus {
     pub mic_signal: bool,
     pub session_id: Option<String>,
     pub levels: Option<LevelsPayload>,
+    pub sys_pending: usize,
+    pub sys_done: usize,
+    pub mic_pending: usize,
+    pub mic_done: usize,
 }
 
 impl Recorder {
@@ -95,6 +111,11 @@ impl Recorder {
         let cfg = crate::config::read_config();
         let language = cfg.language.clone();
         let traditional = cfg.traditional;
+        // 重置 per-track 進度計數(上一場歸零)。
+        for p in [&self.sys_progress, &self.mic_progress] {
+            p.pending.store(0, Ordering::Relaxed);
+            p.done.store(0, Ordering::Relaxed);
+        }
         let vad_cfg = crate::audio::vad::VadConfig {
             silence_split_ms: cfg.silence_split_ms,
             silence_threshold_db: cfg.silence_threshold_db,
@@ -116,6 +137,10 @@ impl Recorder {
                     let jsonl = store.segments_path(kind);
                     let sid = session_id.clone();
                     let app_for_worker = app.clone();
+                    let prog = match kind {
+                        SourceKind::MeetingSystem => &self.sys_progress,
+                        SourceKind::MicInternal => &self.mic_progress,
+                    };
                     let worker = crate::transcribe::spawn_transcribe_worker(
                         rx,
                         sid,
@@ -123,6 +148,8 @@ impl Recorder {
                         jsonl,
                         language.clone(),
                         traditional,
+                        prog.pending.clone(),
+                        prog.done.clone(),
                         move |segs| {
                             for s in segs {
                                 let _ = app_for_worker.emit(
@@ -290,6 +317,10 @@ impl Recorder {
             mic_signal,
             session_id,
             levels,
+            sys_pending: self.sys_progress.pending.load(Ordering::Relaxed),
+            sys_done: self.sys_progress.done.load(Ordering::Relaxed),
+            mic_pending: self.mic_progress.pending.load(Ordering::Relaxed),
+            mic_done: self.mic_progress.done.load(Ordering::Relaxed),
         }
     }
 }

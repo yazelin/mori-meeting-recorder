@@ -23,7 +23,10 @@
     "warning": "Client transcript uses meeting audio only; mic-internal is never exported by default.",
     "idle_label": "IDLE",
     "source_sys": "system audio",
-    "source_mic": "default mic input"
+    "source_mic": "default mic input",
+    "transcribe_progress": "Transcription",
+    "seg_done": "{{n}} done",
+    "seg_pending": "{{n}} transcribing"
   },
   "sessions": {
     "title": "Sessions",
