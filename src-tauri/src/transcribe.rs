@@ -23,6 +23,12 @@ pub struct Segment {
     pub speaker_mixed: bool,
 }
 
+/// 把 whisper 輸出壓成單行:whisper 會在內部斷句處塞 `\n`(一段含多句 → 多行),
+/// 直接顯示會讓即時字幕/匯出一段變好幾行。收斂所有空白(含 `\n`)成單一空格。
+fn normalize_text(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// 把 whisper.cpp `--output-json-full` 解析成 Segments。
 /// `session_id` / `kind` 由呼叫端帶進來(parser 不知道這些)。
 pub fn parse_whisper_json(
@@ -64,7 +70,7 @@ pub fn parse_whisper_json(
             },
             start_ms: r.offsets.from,
             end_ms: r.offsets.to,
-            text: r.text.trim().to_string(),
+            text: normalize_text(&r.text),
             is_final: true,
             confidence: r.confidence,
             speaker: None,
@@ -203,7 +209,7 @@ fn parse_server_json(
         text: String,
     }
     let resp: Resp = serde_json::from_str(json).map_err(|e| format!("parse server json: {e}"))?;
-    let text = resp.text.trim().to_string();
+    let text = normalize_text(&resp.text);
     if text.is_empty() {
         return Ok(None);
     }
@@ -482,6 +488,15 @@ mod tests {
     use super::*;
 
     const FIXTURE: &str = include_str!("../tests/fixtures/whisper-small.json");
+
+    #[test]
+    fn normalize_text_collapses_internal_newlines_to_single_line() {
+        // whisper 內部斷句的 \n 不該變成多行字幕
+        assert_eq!(normalize_text("揹著海下山\n遠觀天山\n啊"), "揹著海下山 遠觀天山 啊");
+        assert_eq!(normalize_text("  hello \n world  "), "hello world");
+        assert_eq!(normalize_text("一句"), "一句");
+        assert!(!normalize_text("a\nb\nc").contains('\n'));
+    }
 
     fn sample_seg() -> Segment {
         Segment {

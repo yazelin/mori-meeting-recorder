@@ -36,8 +36,9 @@ export default function CaptionWindow({ track }: { track: "sys" | "mic" }) {
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
+    let disposed = false;
     (async () => {
-      unlisten = await listen<LiveSegmentEvent>("live-segment", (e) => {
+      const u = await listen<LiveSegmentEvent>("live-segment", (e) => {
         if (e.payload.track !== track) return;
         const { segment } = e.payload;
         const line: Line = { start_ms: segment.start_ms, text: segment.text };
@@ -49,20 +50,26 @@ export default function CaptionWindow({ track }: { track: "sys" | "mic" }) {
         }
         setLines((p) => [...p, line]);
       });
+      // StrictMode/async 競態:cleanup 早於 listen() resolve 會留殭屍 listener → 字幕重複。
+      if (disposed) u();
+      else unlisten = u;
     })();
-    return () => { unlisten?.(); };
+    return () => { disposed = true; unlisten?.(); };
   }, [track]);
 
   // 新錄音開始 → 立刻清空(不等第一段),才不會跟上一場字幕混在一起。
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
+    let disposed = false;
     (async () => {
-      unlisten = await listen("live-reset", () => {
+      const u = await listen("live-reset", () => {
         sessionRef.current = null;
         setLines([]);
       });
+      if (disposed) u();
+      else unlisten = u;
     })();
-    return () => { unlisten?.(); };
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   useEffect(() => {

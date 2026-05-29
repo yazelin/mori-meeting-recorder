@@ -27,8 +27,9 @@ export default function App() {
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
+    let disposed = false;
     (async () => {
-      unlisten = await listen<LiveSegmentEvent>("live-segment", (e) => {
+      const u = await listen<LiveSegmentEvent>("live-segment", (e) => {
         const { track, segment } = e.payload;
         const seg: LiveSegment = { start_ms: segment.start_ms, text: segment.text };
         // 新一場錄音(session_id 變了)→ 清掉上一場字幕,這段當新場第一句。
@@ -41,21 +42,28 @@ export default function App() {
         if (track === "sys") setLiveSys((p) => [...p, seg]);
         else setLiveMic((p) => [...p, seg]);
       });
+      // StrictMode/async 競態:cleanup 可能在 listen() resolve 前就跑(此時 unlisten 還沒設)→
+      // 留下殭屍 listener,每個事件被兩個 listener 各處理一次 → 字幕整行重複。disposed 旗標補掉。
+      if (disposed) u();
+      else unlisten = u;
     })();
-    return () => { unlisten?.(); };
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   // 新錄音開始 → Rust emit "live-reset" → 立刻清空上一場字幕(不等第一段)。
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
+    let disposed = false;
     (async () => {
-      unlisten = await listen("live-reset", () => {
+      const u = await listen("live-reset", () => {
         sessionRef.current = null;
         setLiveSys([]);
         setLiveMic([]);
       });
+      if (disposed) u();
+      else unlisten = u;
     })();
-    return () => { unlisten?.(); };
+    return () => { disposed = true; unlisten?.(); };
   }, []);
 
   // 浮動字幕視窗(caption-sys / caption-mic):錄音開始 show、停止 hide。
