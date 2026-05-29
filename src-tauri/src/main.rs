@@ -611,7 +611,7 @@ fn merge_speakers(session_id: String, keep_id: String, merge_ids: Vec<String>) -
     diarize::write_speakers(&sp_path, &kept)
 }
 
-/// 逐段改講者:把指定 track 的 seg_id 那段 speaker 設成 speaker_id。
+/// 逐段改講者:把指定 track 的 seg_id 那段 speaker 設成 speaker_id(讀 jsonl → relabel_one → 原子寫回)。
 #[tauri::command]
 fn set_segment_speaker(session_id: String, track: String, seg_id: String, speaker_id: String) -> Result<(), String> {
     let root = session_store::default_meetings_dir().join(&session_id);
