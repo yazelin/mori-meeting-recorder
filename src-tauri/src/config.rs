@@ -31,6 +31,12 @@ fn default_transcribe_engine() -> String {
     // 見 agentos-notebook/05-mori-migration/whisper-server-contract.md §3.4。
     "auto".to_string()
 }
+fn default_expanded_width() -> u32 {
+    720
+}
+fn default_expanded_height() -> u32 {
+    620
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RecorderConfig {
@@ -50,6 +56,10 @@ pub struct RecorderConfig {
     pub model: String,
     #[serde(default = "default_transcribe_engine")]
     pub transcribe_engine: String,
+    #[serde(default = "default_expanded_width")]
+    pub expanded_width: u32,
+    #[serde(default = "default_expanded_height")]
+    pub expanded_height: u32,
 }
 
 impl Default for RecorderConfig {
@@ -63,6 +73,8 @@ impl Default for RecorderConfig {
             traditional: default_traditional(),
             model: default_model(),
             transcribe_engine: default_transcribe_engine(),
+            expanded_width: default_expanded_width(),
+            expanded_height: default_expanded_height(),
         }
     }
 }
@@ -107,6 +119,8 @@ mod tests {
         assert_eq!(c.max_segment_secs, 20.0);
         assert_eq!(c.language, "zh");
         assert!(c.traditional);
+        assert_eq!(c.expanded_width, 720);
+        assert_eq!(c.expanded_height, 620);
     }
 
     #[test]

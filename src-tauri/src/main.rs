@@ -283,14 +283,48 @@ async fn download_model() -> Result<(), String> {
 
 #[tauri::command]
 fn set_window_mode(window: tauri::Window, mode: String) -> Result<(), String> {
-    let (w, h) = match mode.as_str() {
-        "collapsed" => (380.0, 44.0),
-        "expanded" => (720.0, 620.0),
-        other => return Err(format!("unknown mode: {other}")),
-    };
-    window
-        .set_size(Size::Logical(LogicalSize { width: w, height: h }))
-        .map_err(|e| format!("set_size: {e}"))
+    match mode.as_str() {
+        "expanded" => {
+            let cfg = config::read_config();
+            window.set_resizable(true).map_err(|e| format!("set_resizable: {e}"))?;
+            window
+                .set_min_size(Some(LogicalSize::new(480.0_f64, 400.0_f64)))
+                .map_err(|e| format!("set_min_size: {e}"))?;
+            window
+                .set_size(Size::Logical(LogicalSize {
+                    width: cfg.expanded_width as f64,
+                    height: cfg.expanded_height as f64,
+                }))
+                .map_err(|e| format!("set_size: {e}"))
+        }
+        "collapsed" => {
+            // Save the current expanded size before collapsing.
+            // inner_size() returns PhysicalSize; convert to logical via scale_factor.
+            let capsule_logical_w = 380.0_f64;
+            if let (Ok(phys), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
+                let logical_w = phys.width as f64 / scale;
+                let logical_h = phys.height as f64 / scale;
+                // Only persist if the window is currently in expanded mode (wider than capsule).
+                if logical_w > capsule_logical_w {
+                    let mut cfg = config::read_config();
+                    cfg.expanded_width = logical_w.round() as u32;
+                    cfg.expanded_height = logical_h.round() as u32;
+                    let _ = config::write_config(&cfg);
+                }
+            }
+            window.set_resizable(false).map_err(|e| format!("set_resizable: {e}"))?;
+            window
+                .set_min_size(None::<LogicalSize<f64>>)
+                .map_err(|e| format!("set_min_size(None): {e}"))?;
+            window
+                .set_size(Size::Logical(LogicalSize {
+                    width: capsule_logical_w,
+                    height: 44.0,
+                }))
+                .map_err(|e| format!("set_size: {e}"))
+        }
+        other => Err(format!("unknown mode: {other}")),
+    }
 }
 
 #[tauri::command]
