@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod config;
+pub mod diarize;
 pub mod exporter;
 pub mod manifest;
 pub mod recorder;

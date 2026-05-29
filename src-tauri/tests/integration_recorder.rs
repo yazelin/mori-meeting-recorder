@@ -22,6 +22,8 @@ fn fake_seg(kind: SourceKind, idx: u64, text: &str) -> Segment {
         text: text.into(),
         is_final: true,
         confidence: None,
+        speaker: None,
+        speaker_mixed: false,
     }
 }
 
@@ -63,7 +65,7 @@ fn end_to_end_exporter_chain_writes_correct_files() {
             internal: "meeting.internal.md".into(),
         },
     };
-    let (pub_md, int_md, timeline) = export(&segs, &meta).unwrap();
+    let (pub_md, int_md, timeline) = export(&segs, &meta, &[]).unwrap();
     std::fs::write(store.public_md_path(), &pub_md).unwrap();
     std::fs::write(store.internal_md_path(), &int_md).unwrap();
     std::fs::write(store.timeline_path(), &timeline).unwrap();

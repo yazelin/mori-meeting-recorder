@@ -42,28 +42,29 @@ fn fmt_ts(ms: u64) -> String {
 }
 
 /// 從 segments + meta 產生 (public_md, internal_md, timeline_json) 三條字串。
-pub fn export(segments: &[Segment], meta: &SessionMeta) -> Result<(String, String, String), String> {
-    let public_md = render_md(
-        segments,
-        "public",
-        &format!(
-            "# Meeting Notes — {}\n\n> Source: meeting_system. Mic-internal not included.\n\n",
-            meta.started_at
-        ),
-    );
-    let internal_md = render_md(
-        segments,
-        "internal",
-        &format!(
-            "# Meeting — 內部備忘 — {}\n\n> 包含 mic-internal segments(本機麥克風)。**內部用途,不對外發。**\n\n",
-            meta.started_at
-        ),
-    );
+pub fn export(
+    segments: &[Segment],
+    meta: &SessionMeta,
+    speakers: &[crate::diarize::SpeakerInfo],
+) -> Result<(String, String, String), String> {
+    let public_md = render_md(segments, "public", &format!(
+        "# Meeting Notes — {}\n\n> Source: meeting_system. Mic-internal not included.\n\n",
+        meta.started_at
+    ), speakers);
+    let internal_md = render_md(segments, "internal", &format!(
+        "# Meeting — 內部備忘 — {}\n\n> 包含 mic-internal segments(本機麥克風)。**內部用途,不對外發。**\n\n",
+        meta.started_at
+    ), speakers);
     let timeline = serde_json::to_string_pretty(meta).map_err(|e| format!("timeline json: {e}"))?;
     Ok((public_md, internal_md, timeline))
 }
 
-fn render_md(segments: &[Segment], visibility: &str, header: &str) -> String {
+fn render_md(
+    segments: &[Segment],
+    visibility: &str,
+    header: &str,
+    speakers: &[crate::diarize::SpeakerInfo],
+) -> String {
     let mut out = String::from(header);
     let mut filtered: Vec<&Segment> = segments.iter().filter(|s| s.visibility == visibility).collect();
     filtered.sort_by_key(|s| s.start_ms);
@@ -72,12 +73,20 @@ fn render_md(segments: &[Segment], visibility: &str, header: &str) -> String {
         return out;
     }
     for s in filtered {
-        let prefix = if visibility == "internal" && s.source_kind == "mic_internal" {
+        let internal_prefix = if visibility == "internal" && s.source_kind == "mic_internal" {
             "(內部)"
         } else {
             ""
         };
-        out.push_str(&format!("[{}] {}{}\n", fmt_ts(s.start_ms), prefix, s.text));
+        let speaker_prefix = match &s.speaker {
+            Some(id) => speakers
+                .iter()
+                .find(|sp| &sp.id == id)
+                .map(|sp| format!("{}: ", sp.display))
+                .unwrap_or_default(),
+            None => String::new(),
+        };
+        out.push_str(&format!("[{}] {}{}{}\n", fmt_ts(s.start_ms), internal_prefix, speaker_prefix, s.text));
     }
     out
 }
@@ -103,6 +112,8 @@ mod tests {
             text: text.into(),
             is_final: true,
             confidence: None,
+            speaker: None,
+            speaker_mixed: false,
         }
     }
 
@@ -128,7 +139,7 @@ mod tests {
             seg("s2", "mic_internal", "internal", 2000, "我方策略"),
             seg("s3", "meeting_system", "public", 3000, "客戶又說的"),
         ];
-        let (pub_md, _, _) = export(&segs, &meta("t")).unwrap();
+        let (pub_md, _, _) = export(&segs, &meta("t"), &[]).unwrap();
         assert!(pub_md.contains("客戶說的"));
         assert!(pub_md.contains("客戶又說的"));
         assert!(!pub_md.contains("我方策略"));
@@ -140,14 +151,14 @@ mod tests {
             seg("s1", "meeting_system", "public", 1000, "客戶說的"),
             seg("s2", "mic_internal", "internal", 2000, "我方策略"),
         ];
-        let (_, int_md, _) = export(&segs, &meta("t")).unwrap();
+        let (_, int_md, _) = export(&segs, &meta("t"), &[]).unwrap();
         assert!(int_md.contains("(內部)我方策略"));
         assert!(!int_md.contains("客戶說的"));
     }
 
     #[test]
     fn timeline_json_is_valid_json_with_session_id() {
-        let (_, _, tl) = export(&[], &meta("meeting-x")).unwrap();
+        let (_, _, tl) = export(&[], &meta("meeting-x"), &[]).unwrap();
         let v: serde_json::Value = serde_json::from_str(&tl).unwrap();
         assert_eq!(v["session_id"], "meeting-x");
         assert_eq!(v["schema_version"], 1);
@@ -155,7 +166,7 @@ mod tests {
 
     #[test]
     fn empty_segments_produce_no_segments_placeholder() {
-        let (pub_md, int_md, _) = export(&[], &meta("t")).unwrap();
+        let (pub_md, int_md, _) = export(&[], &meta("t"), &[]).unwrap();
         assert!(pub_md.contains("(no segments)"));
         assert!(int_md.contains("(no segments)"));
     }
@@ -166,7 +177,7 @@ mod tests {
             seg("s1", "meeting_system", "public", 5000, "後面"),
             seg("s2", "meeting_system", "public", 1000, "前面"),
         ];
-        let (pub_md, _, _) = export(&segs, &meta("t")).unwrap();
+        let (pub_md, _, _) = export(&segs, &meta("t"), &[]).unwrap();
         let pos_qian = pub_md.find("前面").unwrap();
         let pos_hou = pub_md.find("後面").unwrap();
         assert!(pos_qian < pos_hou);
@@ -188,5 +199,33 @@ mod tests {
         ];
         assert_eq!(segment_count(&segs, SourceKind::MeetingSystem), 2);
         assert_eq!(segment_count(&segs, SourceKind::MicInternal), 1);
+    }
+
+    #[test]
+    fn render_md_prefixes_speaker_display_when_present() {
+        use crate::diarize::SpeakerInfo;
+        let mut s = seg("a", "meeting_system", "public", 1000, "你好");
+        s.speaker = Some("S1".into());
+        let speakers = vec![SpeakerInfo { id: "S1".into(), display: "亞澤".into(), track: "system".into() }];
+        let (public_md, _, _) = export(&[s], &meta("m"), &speakers).unwrap();
+        assert!(public_md.contains("亞澤: 你好"), "got: {public_md}");
+    }
+
+    #[test]
+    fn render_md_no_prefix_when_no_speaker() {
+        let s = seg("a", "meeting_system", "public", 1000, "你好");
+        let (public_md, _, _) = export(&[s], &meta("m"), &[]).unwrap();
+        assert!(public_md.contains("] 你好"), "got: {public_md}");
+        assert!(!public_md.contains(": 你好"));
+    }
+
+    #[test]
+    fn internal_mic_segment_with_speaker_shows_both_prefixes() {
+        use crate::diarize::SpeakerInfo;
+        let mut s = seg("b", "mic_internal", "internal", 1000, "私聊");
+        s.speaker = Some("S2".into());
+        let speakers = vec![SpeakerInfo { id: "S2".into(), display: "亞澤".into(), track: "mic-internal".into() }];
+        let (_, int_md, _) = export(&[s], &meta("m"), &speakers).unwrap();
+        assert!(int_md.contains("(內部)亞澤: 私聊"), "got: {int_md}");
     }
 }
