@@ -74,6 +74,11 @@ fn set_config(cfg: config::RecorderConfig) -> Result<(), String> {
     config::write_config(&cfg)
 }
 
+#[tauri::command]
+fn set_meeting_info(topic: String, participants: String) -> Result<(), String> {
+    recorder_instance().set_meeting_info(topic, participants)
+}
+
 /// 找現有 caption 視窗,沒有就建一個(Rust 端建窗比 JS WebviewWindow.getByLabel 可靠;
 /// 靜態 tauri.conf 定義在某些 Wayland 環境沒被建/show 沒效)。帶 log 方便抓問題。
 fn ensure_caption_window(app: &tauri::AppHandle, label: &str) -> Result<tauri::WebviewWindow, String> {
@@ -285,6 +290,7 @@ fn main() {
             deps_check,
             get_config,
             set_config,
+            set_meeting_info,
             set_captions,
             captions_visible,
             set_window_mode,

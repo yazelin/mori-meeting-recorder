@@ -1,8 +1,9 @@
 // src/components/TrackPanel.tsx
 //
 // 一張 Record tab 軌道卡:label + dot + bars icon / VU meter / dB readout / source name。
-// 對應 mock 04 v2 中「會議音訊 · SYS」「內部麥克風 · MIC」兩列。
+// 卡片底列右側放本軌的轉錄進度(已轉 N 段 · 轉錄中…),跟該軌同框,不另開一塊。
 
+import { useTranslation } from "react-i18next";
 import BarsIcon from "./icons/BarsIcon";
 import VuMeter from "./VuMeter";
 
@@ -13,6 +14,7 @@ interface Props {
   label: string;
   sourceName: string;
   level: { peak_db: number; rms_db: number; signal: boolean } | null;
+  progress?: { done: number; pending: number };
 }
 
 function fmtDb(db: number, signal: boolean): string {
@@ -21,7 +23,8 @@ function fmtDb(db: number, signal: boolean): string {
   return `${db.toFixed(0)} dB`;
 }
 
-export default function TrackPanel({ kind, label, sourceName, level }: Props) {
+export default function TrackPanel({ kind, label, sourceName, level, progress }: Props) {
+  const { t } = useTranslation();
   const peakDb = level?.peak_db ?? -120;
   const rmsDb  = level?.rms_db ?? -120;
   const signal = level?.signal ?? false;
@@ -41,7 +44,15 @@ export default function TrackPanel({ kind, label, sourceName, level }: Props) {
           <span className="track-panel-db">{fmtDb(rmsDb, signal)}</span>
         </div>
       </div>
-      <div className="track-panel-source">{sourceName}</div>
+      <div className="track-panel-foot">
+        <span className="track-panel-source">{sourceName}</span>
+        {progress && (
+          <span className="track-panel-prog">
+            {t("record.seg_done", { n: progress.done })}
+            {progress.pending > 0 && <span className="tp-live"> · {t("capsule.transcribing")}</span>}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

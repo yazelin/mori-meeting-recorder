@@ -715,3 +715,22 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 .tp-pending {
   margin-left: auto; font-size: 11px; color: var(--accent); font-variant-numeric: tabular-nums;
 }
+
+/* 軌道卡底列:source 名(左) + 該軌轉錄進度(右),同框不另開區塊 */
+.track-panel-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.track-panel-prog { font-size: 10.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tp-live { color: var(--accent); }
+
+/* 本場主題 / 參與者 輸入(錄音中可填,存進 session) */
+.meeting-info { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.mi-field { display: flex; flex-direction: column; gap: 4px; }
+.mi-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.mi-input {
+  width: 100%; padding: 6px 9px; font-size: 12px;
+  background: var(--btn-bg); color: var(--text);
+  border: 0.5px solid var(--border); border-radius: 8px;
+  font-family: inherit; resize: vertical;
+}
+.mi-input::placeholder { color: var(--text-muted); }
+.mi-input:focus { outline: none; border-color: var(--accent-dim); }
+.mi-textarea { min-height: 44px; line-height: 1.5; }

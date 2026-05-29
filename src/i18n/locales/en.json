@@ -26,7 +26,11 @@
     "source_mic": "default mic input",
     "transcribe_progress": "Transcription",
     "seg_done": "{{n}} done",
-    "seg_pending": "{{n}} transcribing"
+    "seg_pending": "{{n}} transcribing",
+    "topic": "Topic",
+    "topic_ph": "This meeting's topic",
+    "participants": "Participants",
+    "participants_ph": "Who's here (one per line or comma-separated)"
   },
   "sessions": {
     "title": "Sessions",

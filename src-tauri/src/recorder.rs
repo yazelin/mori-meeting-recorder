@@ -280,6 +280,19 @@ impl Recorder {
         Ok(session_id)
     }
 
+    /// 把本場主題 / 參與者寫進當前 session 的 meeting-info.json(PR H 整理會議記錄時讀)。
+    /// 沒在錄音(無 active session)則 no-op —— 開錄後 RecordTab 會再呼一次把已填的值寫進去。
+    pub fn set_meeting_info(&self, topic: String, participants: String) -> Result<(), String> {
+        let active = self.active.lock().map_err(|e| e.to_string())?;
+        if let Some(s) = active.as_ref() {
+            let path = s.store.root.join("meeting-info.json");
+            let json = serde_json::json!({ "topic": topic, "participants": participants });
+            let body = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+            std::fs::write(&path, body).map_err(|e| format!("write meeting-info: {e}"))?;
+        }
+        Ok(())
+    }
+
     pub fn status(&self) -> RecorderStatus {
         let state = *self.state.lock().unwrap_or_else(|e| e.into_inner());
         let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
