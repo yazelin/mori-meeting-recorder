@@ -684,6 +684,12 @@ fn remove_voiceprint(id: String) -> Result<(), String> {
     crate::voiceprint::write_registry(&reg)
 }
 
+/// 取消聲紋錄音:停 capture + 刪 temp WAV,不嵌入、不碰 registry。
+#[tauri::command]
+fn enroll_voice_cancel() -> Result<(), String> {
+    crate::recorder::instance().enroll_record_cancel()
+}
+
 /// 改名指定 id 的聲紋。
 #[tauri::command]
 fn rename_voiceprint(id: String, name: String) -> Result<(), String> {
@@ -809,6 +815,7 @@ fn main() {
             voiceprint_models_present,
             enroll_voice_start,
             enroll_voice_finish,
+            enroll_voice_cancel,
             list_voiceprints,
             remove_voiceprint,
             rename_voiceprint,

@@ -439,6 +439,23 @@ impl Recorder {
         Ok(vc.temp_path)
     }
 
+    /// 聲紋錄音取消:停 capture → 刪 temp WAV(不嵌入、不碰 registry)。
+    /// 若目前沒在錄音則 no-op(同 enroll_record_stop 的 empty 處理方式:直接 Ok)。
+    pub fn enroll_record_cancel(&self) -> Result<(), String> {
+        let vc = self
+            .enroll
+            .lock()
+            .map_err(|e| e.to_string())?
+            .take();
+        let Some(vc) = vc else {
+            return Ok(()); // no-op: nothing was recording
+        };
+        vc.handle.stop_flag.store(true, Ordering::Relaxed);
+        let _ = vc.handle.writer_handle.join();
+        let _ = std::fs::remove_file(&vc.temp_path);
+        Ok(())
+    }
+
     /// 把本場主題 / 參與者寫進當前 session 的 meeting-info.json(PR H 整理會議記錄時讀)。
     /// 沒在錄音(無 active session)則 no-op —— 開錄後 RecordTab 會再呼一次把已填的值寫進去。
     pub fn set_meeting_info(&self, topic: String, participants: String) -> Result<(), String> {

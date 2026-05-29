@@ -135,19 +135,12 @@ export default function PeopleTab() {
     }
   };
 
-  // Abort — best-effort: call finish with a sentinel name to stop the mic, then remove from registry.
-  // There is no dedicated cancel command, so we finish under a sentinel and delete the entry.
+  // Abort — stop mic and discard the temp WAV without embedding or touching the registry.
   const handleCancelRecording = async () => {
     stopTimer();
-    const sentinel = `__cancel__${Date.now()}`;
+    const wasReenroll = reenrollId !== null;
     try {
-      await invoke("enroll_voice_finish", { name: sentinel });
-      // Remove the sentinel entry we just created
-      const rows = await invoke<VoiceprintInfo[]>("list_voiceprints");
-      const sentinelEntry = rows.find((r) => r.name === sentinel);
-      if (sentinelEntry) {
-        await invoke("remove_voiceprint", { id: sentinelEntry.id });
-      }
+      await invoke("enroll_voice_cancel");
     } catch {
       // best-effort — mic may already be stopped
     }
@@ -155,7 +148,7 @@ export default function PeopleTab() {
     setReenrollId(null);
     setEnrollErr(null);
     setElapsed(0);
-    if (reenrollId) setEnrollName("");
+    if (wasReenroll) setEnrollName("");
     await reloadList();
   };
 
