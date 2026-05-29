@@ -93,6 +93,8 @@ impl Recorder {
         let store = SessionStore::create(&session_id, &default_meetings_dir())?;
 
         let cfg = crate::config::read_config();
+        let language = cfg.language.clone();
+        let traditional = cfg.traditional;
         let vad_cfg = crate::audio::vad::VadConfig {
             silence_split_ms: cfg.silence_split_ms,
             silence_threshold_db: cfg.silence_threshold_db,
@@ -119,6 +121,8 @@ impl Recorder {
                         sid,
                         kind,
                         jsonl,
+                        language.clone(),
+                        traditional,
                         move |segs| {
                             for s in segs {
                                 let _ = app_for_worker.emit(

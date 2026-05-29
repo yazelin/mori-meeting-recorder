@@ -12,6 +12,8 @@ interface RecorderConfig {
   silence_threshold_db: number;
   min_speech_secs: number;
   max_segment_secs: number;
+  language: string;
+  traditional: boolean;
 }
 
 const DEFAULTS: RecorderConfig = {
@@ -19,6 +21,8 @@ const DEFAULTS: RecorderConfig = {
   silence_threshold_db: -45,
   min_speech_secs: 0.5,
   max_segment_secs: 20,
+  language: "zh",
+  traditional: true,
 };
 
 export default function SettingsTab() {
@@ -41,6 +45,39 @@ export default function SettingsTab() {
   return (
     <div>
       <h3 style={{ marginTop: 0 }}>{t("settings.title")}</h3>
+
+      {/* Transcription language */}
+      <div className="setting-field">
+        <div className="setting-field-row">
+          <span className="setting-field-label">{t("settings.language")}</span>
+          <select
+            className="setting-field-select"
+            value={cfg.language}
+            onChange={(e) => setCfg({ ...cfg, language: e.target.value })}
+          >
+            <option value="auto">{t("settings.lang_auto")}</option>
+            <option value="zh">{t("settings.lang_zh")}</option>
+            <option value="en">{t("settings.lang_en")}</option>
+            <option value="ja">{t("settings.lang_ja")}</option>
+          </select>
+        </div>
+        <div className="setting-field-hint">{t("settings.language_hint")}</div>
+      </div>
+
+      {/* Traditional conversion toggle */}
+      <div className="setting-field">
+        <div className="setting-field-row">
+          <span className="setting-field-label">{t("settings.traditional")}</span>
+          <input
+            type="checkbox"
+            className="setting-field-checkbox"
+            checked={cfg.traditional}
+            onChange={(e) => setCfg({ ...cfg, traditional: e.target.checked })}
+          />
+        </div>
+        <div className="setting-field-hint">{t("settings.traditional_hint")}</div>
+      </div>
+
       <SettingField
         label={t("settings.silence_split")} hint={t("settings.silence_split_hint")}
         unit="ms" defaultLabel={t("settings.default", { v: 600 })}
