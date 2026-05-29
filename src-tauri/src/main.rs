@@ -364,6 +364,160 @@ fn open_path(_path: &str) -> Result<(), String> {
     Err("unsupported platform".into())
 }
 
+// ── C1: 分人模型安裝狀態 + 下載 ────────────────────────────────────────────────
+
+/// 兩個分人模型(seg + emb)都在才回 true — DepsTab 用來顯示「已安裝」狀態。
+#[tauri::command]
+fn diar_models_present() -> bool {
+    diarize::diarization_models_present()
+}
+
+/// 下載分人模型(seg tar.bz2 + emb onnx)到 ~/.mori/models/。
+/// 進度走既有 DL_ACTIVE / DL_TOTAL statics(前端 polling download_progress)。
+/// 寫到 tmp 再 rename,中途失敗不留殘檔。
+/// Linux:呼叫系統 tar 解 .tar.bz2;Windows:TODO — tar.exe 在 Win10 1803+ 有,但需驗證。
+#[tauri::command]
+async fn download_diar_models() -> Result<(), String> {
+    if DL_ACTIVE.swap(true, Ordering::Relaxed) {
+        return Err("download already in progress".into());
+    }
+    let result = tauri::async_runtime::spawn_blocking(|| -> Result<(), String> {
+        let seg_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2";
+        let emb_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx";
+
+        let seg_dest = diarize::seg_model_path();
+        let emb_dest = diarize::emb_model_path();
+
+        if let Some(parent) = seg_dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir models: {e}"))?;
+        }
+
+        // ── Step 1: seg tar.bz2 — HEAD 取大小 → curl 下載 → 系統 tar 解壓 → rename ──
+        // emb 也下,估 total = seg+emb 各半(近似夠用);seg 和 emb 分開 phase。
+        DL_TOTAL.store(0, Ordering::Relaxed);
+        // 先 HEAD seg URL 取大小,給 DL_TOTAL(emb 大小追加)
+        let mut total_bytes = 0u64;
+        for url in [seg_url, emb_url] {
+            if let Ok(out) = std::process::Command::new("curl").args(["-sIL", url]).output() {
+                let headers = String::from_utf8_lossy(&out.stdout).to_lowercase();
+                if let Some(len) = headers
+                    .lines()
+                    .filter_map(|l| l.strip_prefix("content-length:"))
+                    .filter_map(|v| v.trim().parse::<u64>().ok())
+                    .last()
+                {
+                    total_bytes += len;
+                }
+            }
+        }
+        DL_TOTAL.store(total_bytes, Ordering::Relaxed);
+
+        // Download seg tar.bz2
+        let seg_tar_part = seg_dest.with_extension("onnx.tar.bz2.part");
+        let status = std::process::Command::new("curl")
+            .args(["-L", "--fail", "-o", &seg_tar_part.to_string_lossy(), seg_url])
+            .status()
+            .map_err(|e| format!("spawn curl (seg): {e}"))?;
+        if !status.success() {
+            let _ = std::fs::remove_file(&seg_tar_part);
+            return Err(format!("curl seg failed ({status}) — 檢查網路 / 磁碟空間"));
+        }
+
+        // Extract model.onnx from the tar.bz2 using system tar
+        // The archive contains sherpa-onnx-pyannote-segmentation-3-0/model.onnx
+        let extract_dir = seg_dest.parent().unwrap().join("_seg_extract_tmp");
+        let _ = std::fs::remove_dir_all(&extract_dir);
+        std::fs::create_dir_all(&extract_dir).map_err(|e| format!("mkdir extract dir: {e}"))?;
+
+        #[cfg(target_os = "windows")]
+        {
+            // Windows 10 1803+ ships tar.exe; if absent, this will error clearly.
+            // TODO(windows): verify tar.exe on target machine; fallback to bzip2+tar crates if needed.
+            let st = std::process::Command::new("tar")
+                .args([
+                    "-xjf",
+                    &seg_tar_part.to_string_lossy(),
+                    "-C",
+                    &extract_dir.to_string_lossy(),
+                    "--strip-components=1",
+                ])
+                .status()
+                .map_err(|e| format!("tar (win): {e}"))?;
+            if !st.success() {
+                let _ = std::fs::remove_file(&seg_tar_part);
+                let _ = std::fs::remove_dir_all(&extract_dir);
+                return Err("tar extract failed on Windows — ensure tar.exe is available (Win10 1803+)".into());
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // Linux/macOS: system tar + bzip2
+            let st = std::process::Command::new("tar")
+                .args([
+                    "-xjf",
+                    &seg_tar_part.to_string_lossy(),
+                    "-C",
+                    &extract_dir.to_string_lossy(),
+                    "--strip-components=1",
+                ])
+                .status()
+                .map_err(|e| format!("tar (unix): {e}"))?;
+            if !st.success() {
+                let _ = std::fs::remove_file(&seg_tar_part);
+                let _ = std::fs::remove_dir_all(&extract_dir);
+                return Err(format!("tar extract failed ({st}) — check bzip2 is installed"));
+            }
+        }
+
+        // find model.onnx in extracted dir (--strip-components=1 puts it at extract_dir/model.onnx)
+        let extracted_model = extract_dir.join("model.onnx");
+        if !extracted_model.exists() {
+            // Search one level deeper just in case strip-components didn't apply as expected
+            let found = std::fs::read_dir(&extract_dir)
+                .ok()
+                .and_then(|mut rd| {
+                    rd.find_map(|e| {
+                        let e = e.ok()?;
+                        let candidate = e.path().join("model.onnx");
+                        if candidate.exists() { Some(candidate) } else { None }
+                    })
+                });
+            match found {
+                Some(f) => std::fs::rename(&f, &seg_dest)
+                    .map_err(|e| format!("rename seg model: {e}"))?,
+                None => {
+                    let _ = std::fs::remove_file(&seg_tar_part);
+                    let _ = std::fs::remove_dir_all(&extract_dir);
+                    return Err("model.onnx not found inside tar archive".into());
+                }
+            }
+        } else {
+            std::fs::rename(&extracted_model, &seg_dest)
+                .map_err(|e| format!("rename seg model: {e}"))?;
+        }
+        let _ = std::fs::remove_file(&seg_tar_part);
+        let _ = std::fs::remove_dir_all(&extract_dir);
+
+        // ── Step 2: emb onnx — direct download ──────────────────────────────────
+        let emb_part = emb_dest.with_extension("onnx.part");
+        let status = std::process::Command::new("curl")
+            .args(["-L", "--fail", "-o", &emb_part.to_string_lossy(), emb_url])
+            .status()
+            .map_err(|e| format!("spawn curl (emb): {e}"))?;
+        if !status.success() {
+            let _ = std::fs::remove_file(&emb_part);
+            return Err(format!("curl emb failed ({status}) — 檢查網路 / 磁碟空間"));
+        }
+        std::fs::rename(&emb_part, &emb_dest).map_err(|e| format!("rename emb: {e}"))?;
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join download_diar_models: {e}"));
+    DL_ACTIVE.store(false, Ordering::Relaxed);
+    result?
+}
+
 /// 對一場 session 跑分人後處理:讀 meeting-info 人員數 → num_clusters → 每軌 diarize_wav
 /// → assign_speakers → 標回兩軌 jsonl + 寫 speakers.json。
 /// 耗時(實時因子約 0.08x CPU)→ spawn_blocking 不卡 UI(同 recorder_stop 模式)。
@@ -462,6 +616,9 @@ fn main() {
             list_sessions_detailed,
             open_session_dir,
             diarize_session,
+            // C1: diarization model management
+            diar_models_present,
+            download_diar_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
