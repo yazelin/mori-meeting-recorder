@@ -9,13 +9,15 @@ type DepsCheck = {
   model_ok: boolean;
   model_path: string;
 };
-type GpuStatus = { gpu_name: string | null; cuda_toolkit: boolean; whisper_gpu_build: boolean };
+type GpuStatus = { gpu_name: string | null; cuda_toolkit: boolean; whisper_gpu_build: boolean; is_windows: boolean };
 
 const LINUX_CMD = "curl -fsSL https://raw.githubusercontent.com/yazelin/mori-meeting-recorder/main/scripts/install-whisper-linux.sh | bash";
 const WINDOWS_CMD = "iwr https://raw.githubusercontent.com/yazelin/mori-meeting-recorder/main/scripts/install-whisper-windows.ps1 | iex";
 const CUDA_INSTALL_CMD = "sudo apt install -y nvidia-cuda-toolkit";
-// 強制重建(script 看到 whisper-cli 已存在會跳過 → 先刪掉才會用 CUDA 重編)
+// 強制重建/重裝(script 看到 whisper-cli 已存在會跳過 → 先刪掉才會抓/編 GPU 版)
 const GPU_REBUILD_CMD = "rm -f ~/.mori/bin/whisper-cli && " + LINUX_CMD;
+// Windows:刪掉 exe 再重跑 → 偵測到 GPU 會自動抓 cuBLAS 版(自帶 runtime,免裝 CUDA toolkit)
+const WIN_GPU_REINSTALL_CMD = 'Remove-Item "$env:USERPROFILE\\.mori\\bin\\whisper-cli.exe" -ErrorAction SilentlyContinue; ' + WINDOWS_CMD;
 
 export default function DepsTab() {
   const { t } = useTranslation();
@@ -75,7 +77,13 @@ export default function DepsTab() {
         </span>
         <code>{gpu?.gpu_name ?? t("deps.gpu_none")}</code>
       </div>
-      {gpu && gpu.gpu_name && !gpu.whisper_gpu_build && (
+      {gpu && gpu.gpu_name && !gpu.whisper_gpu_build && gpu.is_windows && (
+        <>
+          <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "6px 0" }}>{t("deps.gpu_steps_win")}</p>
+          <CopyCodeBlock code={WIN_GPU_REINSTALL_CMD} />
+        </>
+      )}
+      {gpu && gpu.gpu_name && !gpu.whisper_gpu_build && !gpu.is_windows && (
         <>
           <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "6px 0" }}>
             {gpu.cuda_toolkit ? t("deps.gpu_steps_rebuild") : t("deps.gpu_steps_cuda")}
