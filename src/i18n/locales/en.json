@@ -47,6 +47,10 @@
   },
   "settings": {
     "title": "Transcribe parameters",
+    "model": "Whisper model",
+    "model_small": "small (fast)",
+    "model_turbo": "large-v3-turbo (accurate, slower)",
+    "model_hint": "small = fast, lower accuracy. large-v3-turbo = much better accuracy, slower on CPU (bigger backlog). Download ggml-<model>.bin into ~/.mori/models/ first (see Deps tab).",
     "silence_split": "Silence split threshold",
     "silence_split_hint": "How long a pause counts as a sentence break. Lower = snappier captions but more fragments.",
     "silence_threshold": "Silence volume threshold",

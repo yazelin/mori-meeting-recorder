@@ -15,6 +15,7 @@ interface RecorderConfig {
   max_segment_secs: number;
   language: string;
   traditional: boolean;
+  model: string;
 }
 
 const DEFAULTS: RecorderConfig = {
@@ -24,6 +25,7 @@ const DEFAULTS: RecorderConfig = {
   max_segment_secs: 20,
   language: "zh",
   traditional: true,
+  model: "small",
 };
 
 export default function SettingsTab() {
@@ -46,6 +48,22 @@ export default function SettingsTab() {
   return (
     <div>
       <h3 style={{ marginTop: 0 }}>{t("settings.title")}</h3>
+
+      {/* Whisper model */}
+      <div className="setting-field">
+        <div className="setting-field-row">
+          <span className="setting-field-label">{t("settings.model")}</span>
+          <Select
+            value={cfg.model}
+            onChange={(v) => setCfg({ ...cfg, model: v })}
+            options={[
+              { value: "small", label: t("settings.model_small") },
+              { value: "large-v3-turbo", label: t("settings.model_turbo") },
+            ]}
+          />
+        </div>
+        <div className="setting-field-hint">{t("settings.model_hint")}</div>
+      </div>
 
       {/* Transcription language */}
       <div className="setting-field">

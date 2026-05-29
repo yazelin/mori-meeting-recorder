@@ -74,7 +74,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 const WHISPER_BIN: &str = "whisper-cli";
-const WHISPER_MODEL_FILENAME: &str = "ggml-small.bin";
 
 pub fn whisper_bin_path() -> std::path::PathBuf {
     dirs::home_dir()
@@ -82,10 +81,13 @@ pub fn whisper_bin_path() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from(WHISPER_BIN))
 }
 
+/// 模型檔依設定的 model 名解析:`~/.mori/models/ggml-<model>.bin`(small / large-v3-turbo)。
+/// deps_check 與 run_whisper 都走這個,所以換模型後兩邊一致。
 pub fn whisper_model_path() -> std::path::PathBuf {
+    let filename = format!("ggml-{}.bin", crate::config::read_config().model);
     dirs::home_dir()
-        .map(|h| h.join(".mori").join("models").join(WHISPER_MODEL_FILENAME))
-        .unwrap_or_else(|| std::path::PathBuf::from(WHISPER_MODEL_FILENAME))
+        .map(|h| h.join(".mori").join("models").join(&filename))
+        .unwrap_or_else(|| std::path::PathBuf::from(filename))
 }
 
 /// 簡→台灣正體。用純 Rust 的 ferrous-opencc(bundle OpenCC 官方字典,s2twp 含台灣詞彙

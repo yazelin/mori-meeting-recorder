@@ -22,6 +22,10 @@ fn default_language() -> String {
 fn default_traditional() -> bool {
     true
 }
+fn default_model() -> String {
+    // 對應 ~/.mori/models/ggml-<model>.bin。目前 UI 給兩個:small / large-v3-turbo。
+    "small".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RecorderConfig {
@@ -37,6 +41,8 @@ pub struct RecorderConfig {
     pub language: String,
     #[serde(default = "default_traditional")]
     pub traditional: bool,
+    #[serde(default = "default_model")]
+    pub model: String,
 }
 
 impl Default for RecorderConfig {
@@ -48,6 +54,7 @@ impl Default for RecorderConfig {
             max_segment_secs: default_max_segment_secs(),
             language: default_language(),
             traditional: default_traditional(),
+            model: default_model(),
         }
     }
 }
