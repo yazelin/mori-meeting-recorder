@@ -2,8 +2,9 @@
  * 注意:Tauri 2 drag 用 [data-tauri-drag-region] 屬性,不是 -webkit-app-region(那是 Electron only)。 */
 
 :root {
-  --accent: rgb(217, 128, 255);
-  --accent-dim: rgba(217, 128, 255, 0.6);
+  /* 暖橘 accent(對齊 rec-accent;原 AgentPulse 紫已換)。primary 按鈕 / 勾選 / 選中項用它 */
+  --accent: rgb(255, 138, 80);
+  --accent-dim: rgba(255, 138, 80, 0.6);
   --text: rgba(255, 255, 255, 0.95);
   --text-secondary: rgba(255, 255, 255, 0.65);
   --text-dim: rgba(255, 255, 255, 0.45);
@@ -656,3 +657,42 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 .cap-win-close:hover { color: var(--text); }
 .cap-win-body { flex: 1; overflow-y: auto; padding: 8px 10px; }
 .cap-win-empty { color: var(--text-dim); font-size: 11px; margin: 0; }
+
+/* 自繪下拉(取代原生 <select>;webkit2gtk 的 GTK panel 配色管不到) */
+.mmr-select { position: relative; display: inline-block; }
+.mmr-select-trigger {
+  display: flex; align-items: center; gap: 8px; min-width: 120px;
+  padding: 4px 8px; font-size: 12px;
+  background: var(--btn-bg); color: var(--text);
+  border: 0.5px solid var(--border); border-radius: 6px; cursor: pointer;
+}
+.mmr-select-trigger:hover { background: var(--btn-bg-hover); }
+.mmr-select-caret { margin-left: auto; color: var(--text-dim); font-size: 10px; }
+.mmr-select-panel {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 50;
+  min-width: 100%; padding: 4px;
+  background: rgb(38, 38, 40);
+  border: 0.5px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.mmr-select-option {
+  display: block; width: 100%; text-align: left;
+  padding: 5px 8px; font-size: 12px; color: var(--text);
+  background: transparent; border: none; border-radius: 5px; cursor: pointer; white-space: nowrap;
+}
+.mmr-select-option.hover { background: var(--hover); }
+.mmr-select-option.selected { color: var(--accent); font-weight: 600; }
+
+/* 數字 stepper —— 隱藏原生 spinner(GTK 白底看不到)改自繪 − / + */
+.setting-stepper { display: inline-flex; align-items: center; gap: 4px; }
+.setting-stepper-btn {
+  width: 22px; height: 24px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--btn-bg); color: var(--text-secondary);
+  border: 0.5px solid var(--border); border-radius: 6px; cursor: pointer;
+  font-size: 14px; line-height: 1;
+}
+.setting-stepper-btn:hover { background: var(--btn-bg-hover); color: var(--text); }
+.setting-field-input::-webkit-inner-spin-button,
+.setting-field-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.setting-field-input { -moz-appearance: textfield; appearance: textfield; text-align: center; }
