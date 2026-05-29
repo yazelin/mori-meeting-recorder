@@ -26,7 +26,11 @@
     "source_mic": "本機麥克風 (default-input)",
     "transcribe_progress": "轉錄進度",
     "seg_done": "已轉 {{n}} 段",
-    "seg_pending": "剩 {{n}} 段轉錄中"
+    "seg_pending": "剩 {{n}} 段轉錄中",
+    "topic": "本場主題",
+    "topic_ph": "這場會議的主題",
+    "participants": "參與者",
+    "participants_ph": "有誰在場(一行一位或用逗號分隔)"
   },
   "sessions": {
     "title": "Session 列表",

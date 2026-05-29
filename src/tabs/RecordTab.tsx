@@ -35,6 +35,10 @@ export default function RecordTab() {
   const [status, setStatus] = useState<Status | null>(null);
   const [levels, setLevels] = useState<LevelsPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // 本場主題 + 參與者 —— 錄音中就能填,存進該場 session(meeting-info.json),PR H 整理時拿來用。
+  const [topic, setTopic] = useState("");
+  const [participants, setParticipants] = useState("");
+  const saveInfo = () => { invoke("set_meeting_info", { topic, participants }).catch(() => {}); };
 
   // status polling (500ms) — 兼當 levels polling fallback
   useEffect(() => {
@@ -70,7 +74,11 @@ export default function RecordTab() {
         setLevels(null);
         const s = await invoke<Status>("recorder_status");
         setStatus(s);
-      } else if (recState === "idle") await invoke("recorder_start");
+      } else if (recState === "idle") {
+        await invoke("recorder_start");
+        // session 建好後把已填的主題/參與者寫進去
+        await invoke("set_meeting_info", { topic, participants }).catch(() => {});
+      }
     } catch (e: any) {
       setErr(String(e));
       console.error(e);
@@ -114,29 +122,37 @@ export default function RecordTab() {
         label={t("capsule.system_pill")}
         sourceName={t("record.source_sys")}
         level={levels?.sys ?? null}
+        progress={{ done: status?.sys_done ?? 0, pending: status?.sys_pending ?? 0 }}
       />
       <TrackPanel
         kind="mic"
         label={t("capsule.mic_pill")}
         sourceName={t("record.source_mic")}
         level={levels?.mic ?? null}
+        progress={{ done: status?.mic_done ?? 0, pending: status?.mic_pending ?? 0 }}
       />
 
-      <div className="transcribe-progress">
-        <div className="tp-title">{t("record.transcribe_progress")}</div>
-        <div className="tp-row">
-          <span className="tp-track sys">{t("capsule.system_pill")}</span>
-          <span className="tp-done">{t("record.seg_done", { n: status?.sys_done ?? 0 })}</span>
-          {(status?.sys_pending ?? 0) > 0 && (
-            <span className="tp-pending">{t("record.seg_pending", { n: status?.sys_pending ?? 0 })}</span>
-          )}
+      <div className="meeting-info">
+        <div className="mi-field">
+          <label className="mi-label">{t("record.topic")}</label>
+          <input
+            className="mi-input"
+            value={topic}
+            placeholder={t("record.topic_ph")}
+            onChange={(e) => setTopic(e.target.value)}
+            onBlur={saveInfo}
+          />
         </div>
-        <div className="tp-row">
-          <span className="tp-track mic">{t("capsule.mic_pill")}</span>
-          <span className="tp-done">{t("record.seg_done", { n: status?.mic_done ?? 0 })}</span>
-          {(status?.mic_pending ?? 0) > 0 && (
-            <span className="tp-pending">{t("record.seg_pending", { n: status?.mic_pending ?? 0 })}</span>
-          )}
+        <div className="mi-field">
+          <label className="mi-label">{t("record.participants")}</label>
+          <textarea
+            className="mi-input mi-textarea"
+            value={participants}
+            placeholder={t("record.participants_ph")}
+            onChange={(e) => setParticipants(e.target.value)}
+            onBlur={saveInfo}
+            rows={2}
+          />
         </div>
       </div>
 
