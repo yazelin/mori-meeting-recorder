@@ -129,14 +129,12 @@ impl Recorder {
         let cfg = crate::config::read_config();
         let language = cfg.language.clone();
         let traditional = cfg.traditional;
-        // 本場「一次解析、快取」共享 whisper-server(契約 §3.1 verify-before-trust):engine=cli → 不用;
-        // auto/server → reachable_server() 驗活一次,整場沿用,避免每段都 GET / 驗活的延遲。每軌各拿
-        // 一份 clone,worker 內 sticky:server 掛了就該軌改 cli。沒 server 一律 cli(standalone-first)。
-        let server = if cfg.transcribe_engine == "cli" {
-            None
-        } else {
-            crate::whisper_discovery::reachable_server()
-        };
+        // engine=cli → 完全不碰 server。否則:若沒有可用共享 server,detached 拉起 supervisor(非阻塞),
+        // worker 會在 warmup 期間每段重試 reachable_server() 直到接上(見 spawn_transcribe_worker)。
+        let try_server = cfg.transcribe_engine != "cli";
+        if try_server {
+            autostart_whisper_server(&cfg.model);
+        }
         // 重置 per-track 進度計數(上一場歸零)。
         for p in [&self.sys_progress, &self.mic_progress] {
             p.pending.store(0, Ordering::Relaxed);
@@ -176,7 +174,7 @@ impl Recorder {
                         traditional,
                         prog.pending.clone(),
                         prog.done.clone(),
-                        server.clone(),
+                        try_server,
                         move |segs| {
                             for s in segs {
                                 let _ = app_for_worker.emit(
@@ -455,6 +453,61 @@ impl Recorder {
     }
 }
 
+
+/// 找 mori-whisper-serve(跟 recorder 執行檔同目錄:dev 在 target/<profile>/,bundle 走 sidecar)。
+fn whisper_serve_bin() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    #[cfg(windows)]
+    let name = "mori-whisper-serve.exe";
+    #[cfg(not(windows))]
+    let name = "mori-whisper-serve";
+    let p = dir.join(name);
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+/// 若沒有可用的共享 whisper-server,detached spawn supervisor 把它拉起(fire-and-forget,不等 ready)。
+/// **退出不關它** —— supervisor 自己 idle-reap(使用者選的生命週期:有人用就開、沒人用 10 分鐘自關)。
+/// detached:Linux setsid / Windows DETACHED_PROCESS,讓它比 recorder 活得久。找不到 binary 就略過(走 cli)。
+fn autostart_whisper_server(model: &str) {
+    if crate::whisper_discovery::reachable_server().is_some() {
+        return; // 已有活的共享 server,免動
+    }
+    let bin = match whisper_serve_bin() {
+        Some(b) => b,
+        None => {
+            eprintln!("[recorder] mori-whisper-serve not found next to exe; skip autostart (use cli)");
+            return;
+        }
+    };
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.args(["--model", model, "--idle-secs", "600"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(target_os = "linux")]
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        cmd.pre_exec(|| {
+            libc::setsid(); // 自成 session,recorder 關掉也不連帶收掉它
+            Ok(())
+        });
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+    match cmd.spawn() {
+        Ok(_) => eprintln!("[recorder] autostarted mori-whisper-serve (model={model})"),
+        Err(e) => eprintln!("[recorder] autostart mori-whisper-serve failed: {e}"),
+    }
+}
 
 pub static RECORDER: std::sync::OnceLock<Arc<Recorder>> = std::sync::OnceLock::new();
 

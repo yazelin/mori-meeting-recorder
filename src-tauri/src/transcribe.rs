@@ -392,13 +392,19 @@ pub fn spawn_transcribe_worker(
     traditional: bool,
     pending: Arc<AtomicUsize>,
     done: Arc<AtomicUsize>,
-    server: Option<crate::whisper_discovery::WhisperServerDescriptor>,
+    try_server: bool,
     on_segment: impl Fn(&[Segment]) + Send + 'static,
 ) -> TranscribeWorker {
     let handle = std::thread::spawn(move || {
-        // 本 worker(本軌)的 server 快取;sticky fallback 後設 None,本場後續 clip 直接 cli。
-        let mut server = server;
+        // server 解析「lazy + warmup 容忍」:還沒接上前每段重試 reachable_server()(recorder 開場 autostart
+        // 的 supervisor 可能還在載模型),一接上就固定用它。一旦「用過的 server」又失敗(run_whisper sticky
+        // 把它設 None)→ server_disabled,本場後續永久落 cli,不再重試(避免每段重撞掛掉的 server)。
+        let mut server: Option<crate::whisper_discovery::WhisperServerDescriptor> = None;
+        let mut server_disabled = !try_server;
         while let Ok(seg) = speech_rx.recv() {
+            if !server_disabled && server.is_none() {
+                server = crate::whisper_discovery::reachable_server();
+            }
             // pending 在 capture 送進 channel 時就 +1(見 audio/*),這裡只在轉完時 -1。
             // 寫 temp WAV
             let tmp = std::env::temp_dir().join(format!(
@@ -412,7 +418,11 @@ pub fn spawn_transcribe_worker(
                 done.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
+            let had_server = server.is_some();
             let raw = run_whisper(&tmp, &session_id, kind, &language, traditional, &mut server);
+            if had_server && server.is_none() {
+                server_disabled = true; // 用過的 server 失敗(sticky)→ 本場永久落 cli,不再重試
+            }
             let _ = std::fs::remove_file(&tmp);
             // whisper-cli 另外寫了 <wav>.json sidecar,一併清掉
             let _ = std::fs::remove_file(tmp.with_extension("wav.json"));
