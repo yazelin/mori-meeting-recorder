@@ -15,6 +15,11 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
     LogicalSize, Manager, PhysicalPosition, Size, WebviewUrl, WebviewWindowBuilder,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// 浮動字幕視窗目前是否顯示中。set_captions 設定它;前端 CC 鈕 polling captions_visible
+/// 來反映真實狀態(否則錄音 auto-show 開了視窗,CC 鈕不會亮 — 兩邊狀態不同步)。
+static CAPTIONS_VISIBLE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Serialize)]
 struct DepsCheck {
@@ -124,7 +129,14 @@ fn set_captions(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
             Err(e) => eprintln!("[captions] {label}: {e}"),
         }
     }
+    CAPTIONS_VISIBLE.store(visible, Ordering::Relaxed);
     Ok(())
+}
+
+/// 前端 CC 鈕 polling 用 — 浮動字幕視窗目前是否顯示。
+#[tauri::command]
+fn captions_visible() -> bool {
+    CAPTIONS_VISIBLE.load(Ordering::Relaxed)
 }
 
 #[tauri::command]
@@ -274,6 +286,7 @@ fn main() {
             get_config,
             set_config,
             set_captions,
+            captions_visible,
             set_window_mode,
             list_sessions,
             list_sessions_detailed,

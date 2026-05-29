@@ -23,7 +23,10 @@
     "warning": "客戶版只使用會議音訊;內部麥克風不會預設匯出給客戶。",
     "idle_label": "閒置",
     "source_sys": "系統音訊 (pulse:.monitor)",
-    "source_mic": "本機麥克風 (default-input)"
+    "source_mic": "本機麥克風 (default-input)",
+    "transcribe_progress": "轉錄進度",
+    "seg_done": "已轉 {{n}} 段",
+    "seg_pending": "剩 {{n}} 段轉錄中"
   },
   "sessions": {
     "title": "Session 列表",

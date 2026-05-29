@@ -271,7 +271,6 @@ fn write_wav_16k_mono(path: &Path, samples: &[i16]) -> Result<(), String> {
 /// 背景 transcribe worker — 從 channel 收 SpeechSegment,跑 whisper,append jsonl + emit。
 pub struct TranscribeWorker {
     pub handle: std::thread::JoinHandle<()>,
-    pub pending: Arc<AtomicUsize>,
 }
 
 /// 啟一個 worker。speech_rx 來自 open_capture 回傳的 tuple;每段轉完呼 on_segment(&segments) 給呼叫端 emit。
@@ -284,13 +283,13 @@ pub fn spawn_transcribe_worker(
     jsonl_path: std::path::PathBuf,
     language: String,
     traditional: bool,
+    pending: Arc<AtomicUsize>,
+    done: Arc<AtomicUsize>,
     on_segment: impl Fn(&[Segment]) + Send + 'static,
 ) -> TranscribeWorker {
-    let pending = Arc::new(AtomicUsize::new(0));
-    let pending_thread = pending.clone();
     let handle = std::thread::spawn(move || {
         while let Ok(seg) = speech_rx.recv() {
-            pending_thread.fetch_add(1, Ordering::Relaxed);
+            pending.fetch_add(1, Ordering::Relaxed);
             // 寫 temp WAV
             let tmp = std::env::temp_dir().join(format!(
                 "mori-live-{}-{}.wav",
@@ -299,7 +298,8 @@ pub fn spawn_transcribe_worker(
             ));
             if let Err(e) = write_wav_16k_mono(&tmp, &seg.samples) {
                 eprintln!("live transcribe: write temp wav: {e}");
-                pending_thread.fetch_sub(1, Ordering::Relaxed);
+                pending.fetch_sub(1, Ordering::Relaxed);
+                done.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
             let raw = run_whisper(&tmp, &session_id, kind, &language, traditional);
@@ -313,10 +313,11 @@ pub fn spawn_transcribe_worker(
                 }
                 on_segment(&shifted);
             }
-            pending_thread.fetch_sub(1, Ordering::Relaxed);
+            pending.fetch_sub(1, Ordering::Relaxed);
+            done.fetch_add(1, Ordering::Relaxed);
         }
     });
-    TranscribeWorker { handle, pending }
+    TranscribeWorker { handle }
 }
 
 /// 讀回 jsonl 成 Vec<Segment>(stop 時彙整用)。缺檔回空。壞行跳過。

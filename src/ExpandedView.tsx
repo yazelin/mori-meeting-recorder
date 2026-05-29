@@ -32,10 +32,11 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
   // 常駐錄音狀態 — 任何分頁(含 Live)的 header 都看得到狀態 + 時間 + SYS/MIC 訊號。
   type Status = { state: string; elapsed_secs: number; system_signal: boolean; mic_signal: boolean };
   const [rec, setRec] = useState<Status>({ state: "idle", elapsed_secs: 0, system_signal: false, mic_signal: false });
+  const [captionsVisible, setCaptionsVisible] = useState(false);
   useEffect(() => {
     const tick = async () => {
-      try { setRec(await invoke<Status>("recorder_status")); }
-      catch { /* ignore */ }
+      try { setRec(await invoke<Status>("recorder_status")); } catch { /* ignore */ }
+      try { setCaptionsVisible(await invoke<boolean>("captions_visible")); } catch { /* ignore */ }
     };
     tick();
     const id = setInterval(tick, 500);
@@ -43,11 +44,11 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
   }, []);
   const recLabel = rec.state === "recording" ? "REC" : rec.state === "transcribing" ? t("capsule.transcribing") : "idle";
 
-  // 浮動字幕視窗手動開關(不靠錄音 auto-show);也當「視窗到底出不出得來」的診斷。
-  const [captionsOn, setCaptionsOn] = useState(false);
+  // 浮動字幕視窗開關。真實狀態以後端 captions_visible 為準(錄音 auto-show 也會反映),
+  // CC 鈕跟著亮 → 不會「視窗開了但鈕沒亮」。
   const toggleCaptions = async () => {
-    const next = !captionsOn;
-    setCaptionsOn(next);
+    const next = !captionsVisible;
+    setCaptionsVisible(next); // 樂觀更新,下個 poll 校正
     try { await invoke("set_captions", { visible: next }); } catch { /* ignore */ }
   };
 
@@ -78,9 +79,9 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
           <span className="exp-status-time">{fmtElapsed(rec.elapsed_secs)}</span>
         </span>
         <button
-          className={`icon-btn ${captionsOn ? "active" : ""}`}
+          className={`icon-btn ${captionsVisible ? "active" : ""}`}
           onClick={toggleCaptions}
-          title={captionsOn ? "hide caption windows" : "show caption windows"}
+          title={captionsVisible ? "hide caption windows" : "show caption windows"}
         >CC</button>
         <button className="icon-btn" onClick={onCollapse} title="collapse">▴</button>
       </div>
