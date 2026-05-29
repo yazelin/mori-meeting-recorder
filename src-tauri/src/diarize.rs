@@ -70,8 +70,8 @@ pub fn diarize_wav(wav: &std::path::Path, num_clusters: Option<usize>) -> Result
         .sort_by_start_time()
         .into_iter()
         .map(|s| SpeakerSpan {
-            start_ms: (s.start.max(0.0) * 1000.0) as u64,
-            end_ms: (s.end.max(0.0) * 1000.0) as u64,
+            start_ms: if s.start.is_finite() { (s.start.max(0.0) * 1000.0) as u64 } else { 0 },
+            end_ms: if s.end.is_finite() { (s.end.max(0.0) * 1000.0) as u64 } else { 0 },
             speaker_local: s.speaker.max(0) as usize,
         })
         .collect();
@@ -230,6 +230,14 @@ mod tests {
     fn diar_model_paths_under_mori_models() {
         assert!(seg_model_path().to_string_lossy().contains(".mori/models") || seg_model_path().to_string_lossy().contains(".mori\\models"));
         assert!(emb_model_path().ends_with("3dspeaker-eres2net-zh.onnx"));
+        assert_eq!(
+            seg_model_path().file_name().unwrap().to_str().unwrap(),
+            "pyannote-segmentation-3-0.onnx"
+        );
+        assert_eq!(
+            emb_model_path().file_name().unwrap().to_str().unwrap(),
+            "3dspeaker-eres2net-zh.onnx"
+        );
     }
 
     #[test]
