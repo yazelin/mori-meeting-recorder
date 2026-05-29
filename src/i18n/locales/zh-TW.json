@@ -101,7 +101,9 @@
     "reexport_title": "重新匯出",
     "reexport_btn": "重新匯出",
     "reexporting": "匯出中…",
-    "reexport_ok": "匯出完成"
+    "reexport_ok": "匯出完成",
+    "src_system": "系統",
+    "src_mic": "麥克風"
   },
   "people": {
     "title": "人員",
