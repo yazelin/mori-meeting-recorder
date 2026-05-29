@@ -95,13 +95,15 @@ impl SignalMeter {
 /// 要 move 出來給 worker thread。
 pub type CaptureResult = (CaptureHandle, std::sync::mpsc::Receiver<vad::SpeechSegment>);
 
+/// `pending`:per-track 佇列計數(送進 channel 時 +1,worker 轉完 -1)→ 真實待轉段數。
 #[cfg(target_os = "linux")]
 pub fn open_capture(
     source: SourceKind,
     out_path: std::path::PathBuf,
     vad_cfg: vad::VadConfig,
+    pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<CaptureResult, String> {
-    linux::open_capture(source, out_path, vad_cfg)
+    linux::open_capture(source, out_path, vad_cfg, pending)
 }
 
 #[cfg(target_os = "windows")]
@@ -109,8 +111,9 @@ pub fn open_capture(
     source: SourceKind,
     out_path: std::path::PathBuf,
     vad_cfg: vad::VadConfig,
+    pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<CaptureResult, String> {
-    windows::open_capture(source, out_path, vad_cfg)
+    windows::open_capture(source, out_path, vad_cfg, pending)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -118,6 +121,7 @@ pub fn open_capture(
     _source: SourceKind,
     _out_path: std::path::PathBuf,
     _vad_cfg: vad::VadConfig,
+    _pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<CaptureResult, String> {
     Err("only linux + windows supported in MVP".into())
 }
