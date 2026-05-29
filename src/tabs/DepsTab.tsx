@@ -9,9 +9,13 @@ type DepsCheck = {
   model_ok: boolean;
   model_path: string;
 };
+type GpuStatus = { gpu_name: string | null; cuda_toolkit: boolean; whisper_gpu_build: boolean };
 
 const LINUX_CMD = "curl -fsSL https://raw.githubusercontent.com/yazelin/mori-meeting-recorder/main/scripts/install-whisper-linux.sh | bash";
 const WINDOWS_CMD = "iwr https://raw.githubusercontent.com/yazelin/mori-meeting-recorder/main/scripts/install-whisper-windows.ps1 | iex";
+const CUDA_INSTALL_CMD = "sudo apt install -y nvidia-cuda-toolkit";
+// 強制重建(script 看到 whisper-cli 已存在會跳過 → 先刪掉才會用 CUDA 重編)
+const GPU_REBUILD_CMD = "rm -f ~/.mori/bin/whisper-cli && " + LINUX_CMD;
 
 export default function DepsTab() {
   const { t } = useTranslation();
@@ -19,8 +23,11 @@ export default function DepsTab() {
   const [dl, setDl] = useState<{ active: boolean; downloaded: number; total: number }>({ active: false, downloaded: 0, total: 0 });
   const [dlErr, setDlErr] = useState<string | null>(null);
 
+  const [gpu, setGpu] = useState<GpuStatus | null>(null);
+
   const recheck = async () => {
     try { setDeps(await invoke<DepsCheck>("deps_check")); } catch {}
+    try { setGpu(await invoke<GpuStatus>("gpu_status")); } catch {}
   };
   useEffect(() => { recheck(); }, []);
 
@@ -59,6 +66,27 @@ export default function DepsTab() {
         <DepRow label={t("deps.model")} ok={deps?.model_ok ?? false} path={deps?.model_path ?? "—"} t={t} />
       </div>
       <button className="mmr-btn" onClick={recheck} style={{ marginTop: 12 }}>{t("deps.recheck")}</button>
+
+      <h4>{t("deps.gpu_title")}</h4>
+      <div className="dep-row">
+        <span className="label">{t("deps.gpu_accel")}</span>
+        <span className={gpu?.whisper_gpu_build ? "ok" : "miss"}>
+          {gpu?.whisper_gpu_build ? t("deps.gpu_on") : t("deps.gpu_off")}
+        </span>
+        <code>{gpu?.gpu_name ?? t("deps.gpu_none")}</code>
+      </div>
+      {gpu && gpu.gpu_name && !gpu.whisper_gpu_build && (
+        <>
+          <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "6px 0" }}>
+            {gpu.cuda_toolkit ? t("deps.gpu_steps_rebuild") : t("deps.gpu_steps_cuda")}
+          </p>
+          {!gpu.cuda_toolkit && <CopyCodeBlock code={CUDA_INSTALL_CMD} />}
+          <CopyCodeBlock code={GPU_REBUILD_CMD} />
+        </>
+      )}
+      {gpu && !gpu.gpu_name && (
+        <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "6px 0" }}>{t("deps.gpu_no_hint")}</p>
+      )}
 
       <h4>{t("deps.download_model")}</h4>
       <p style={{ fontSize: 10.5, color: "var(--text-dim)", margin: "0 0 8px" }}>{t("deps.download_model_hint", { file: modelFile })}</p>

@@ -25,12 +25,22 @@ else
     "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/${version}.tar.gz"
   tar -xzf whisper.cpp.tar.gz
   src_dir="whisper.cpp-${version#v}"
+  # GPU:偵測到 CUDA toolkit(nvcc)就用 GPU 編(GGML_CUDA=1)→ whisper-cli 會吃 NVIDIA GPU。
+  # 沒 nvcc 就 CPU 編。要 GPU 加速但缺 nvcc:先 `sudo apt install nvidia-cuda-toolkit` 再重跑本指令。
+  cuda_flag=""
+  if command -v nvcc >/dev/null 2>&1; then
+    echo "  ✓ 偵測到 CUDA toolkit → 用 GPU 編譯(GGML_CUDA=1)"
+    cuda_flag="-DGGML_CUDA=1"
+  else
+    echo "  · 無 CUDA toolkit(nvcc)→ CPU 編譯。要 GPU 請先 sudo apt install nvidia-cuda-toolkit 再重跑。"
+  fi
   cmake -S "$src_dir" -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DWHISPER_BUILD_TESTS=OFF \
     -DWHISPER_BUILD_EXAMPLES=ON \
     -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
-    -DCMAKE_INSTALL_RPATH='$ORIGIN'
+    -DCMAKE_INSTALL_RPATH='$ORIGIN' \
+    $cuda_flag
   cmake --build build --target whisper-cli -j"$(nproc)"
   # whisper.cpp v1.7+ binary 叫 whisper-cli;舊版叫 main。
   if [ -x build/bin/whisper-cli ]; then

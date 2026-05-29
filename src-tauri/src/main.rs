@@ -162,6 +162,44 @@ fn captions_visible() -> bool {
 }
 
 #[derive(Serialize)]
+struct GpuStatus {
+    gpu_name: Option<String>, // nvidia-smi 偵測到的 GPU(None = 無 NVIDIA GPU)
+    cuda_toolkit: bool,       // nvcc 在不在(能不能 GPU build)
+    whisper_gpu_build: bool,  // 現在這支 whisper-cli 是不是 GPU build(旁邊有 libggml-cuda.so)
+}
+
+/// GPU 偵測 — 給 Deps 頁顯示「能不能 GPU 加速 + 缺什麼」。
+/// 注意:whisper.cpp 的 GPU 是編譯時決定的,所以這裡只能顯示「硬體/工具齊不齊」+ 指引;
+/// 真的要 GPU 還是得用 CUDA 重 build whisper-cli(install script 偵測到 nvcc 會自動編)。
+#[tauri::command]
+fn gpu_status() -> GpuStatus {
+    let gpu_name = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=name", "--format=csv,noheader"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            let s = String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").trim().to_string();
+            if s.is_empty() { None } else { Some(s) }
+        });
+    let cuda_toolkit = std::process::Command::new("nvcc")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    // 現在這支 whisper-cli 是不是 GPU build:旁邊有沒有 libggml-cuda.so(CUDA build 才會編出來)。
+    let whisper_gpu_build = transcribe::whisper_bin_path()
+        .parent()
+        .and_then(|dir| std::fs::read_dir(dir).ok())
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .any(|e| e.file_name().to_string_lossy().contains("libggml-cuda"))
+        })
+        .unwrap_or(false);
+    GpuStatus { gpu_name, cuda_toolkit, whisper_gpu_build }
+}
+
+#[derive(Serialize)]
 struct DownloadProgress {
     active: bool,
     downloaded: u64,
@@ -385,6 +423,7 @@ fn main() {
             captions_visible,
             download_model,
             download_progress,
+            gpu_status,
             set_window_mode,
             list_sessions,
             list_sessions_detailed,
