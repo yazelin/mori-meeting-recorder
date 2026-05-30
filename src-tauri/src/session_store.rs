@@ -9,6 +9,18 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
+    /// 從既有 session root 建 store(不建目錄)。session_id 取 root 末段 dir 名,
+    /// 供只需要 path getter 的 caller(如摘要 writer / read_summary_md)用,
+    /// 避免在外面重組 struct literal + 多餘 clone。
+    pub fn from_root(root: PathBuf) -> Self {
+        let session_id = root
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        Self { session_id, root }
+    }
+
     /// 建出 `<base>/<session_id>/{audio,transcript}/` 並回 store。
     pub fn create(session_id: &str, base: &Path) -> Result<Self, String> {
         let root = base.join(session_id);
@@ -28,6 +40,11 @@ impl SessionStore {
     pub fn public_md_path(&self) -> PathBuf { self.root.join("meeting.public.md") }
     pub fn internal_md_path(&self) -> PathBuf { self.root.join("meeting.internal.md") }
     pub fn timeline_path(&self) -> PathBuf { self.root.join("timeline.json") }
+
+    // ── 摘要產物(§4.3):跟逐字稿匯出檔並列,一眼可分。 ──
+    pub fn summary_public_md_path(&self) -> PathBuf { self.root.join("meeting.summary.public.md") }
+    pub fn summary_internal_md_path(&self) -> PathBuf { self.root.join("meeting.summary.internal.md") }
+    pub fn summary_audit_path(&self) -> PathBuf { self.root.join("summary.audit.jsonl") }
 }
 
 /// 預設 base dir = `~/.mori/meetings/`。

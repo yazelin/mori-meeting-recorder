@@ -28,8 +28,11 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 # 純 Rust OpenCC(bundle 官方字典)— 簡→台灣正體,品質對齊 OpenCC,零外部安裝。
 ferrous-opencc = "0.4"
-# 共享 whisper-server 的 HTTP client(localhost only,免 TLS)— 健康檢查 GET / + POST /inference。
-ureq = { version = "2", default-features = false }
+# 共享 whisper-server 的 HTTP client(localhost)+ 摘要 cloud-first 的 Groq HTTPS。
+# tls feature 走 rustls(純 Rust,無系統 OpenSSL,對齊 standalone-first / bundle-in-repo)。
+ureq = { version = "2", default-features = false, features = ["tls"] }
+# 摘要送 LLM 前 redact 長壽憑證(鏡射 mori-core redact.rs 的 regex pattern)。
+regex = "1"
 # 講者分離(onnx,無 Python)。static = 靜態連 onnxruntime(CPU)。GPU 之後用 provider=cuda(需 CUDA-enabled build)。
 sherpa-onnx = { version = "1.13", default-features = false, features = ["static"] }
 

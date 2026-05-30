@@ -49,6 +49,16 @@
   --seg-pill-internal-fg:     var(--waiting-color);
   --seg-pill-supplement-bg:   rgba(255, 138, 80, 0.18);
   --seg-pill-supplement-fg:   var(--accent);
+
+  /* 摘要後端徽章 token(會議紀錄分區;recorder 自己一套,不沿 mori-desktop var(--c-*)) */
+  --backend-badge-cloud-bg:   rgba(120, 170, 255, 0.18);   /* 雲端 Groq:藍 */
+  --backend-badge-cloud-fg:   rgb(140, 185, 255);
+  --backend-badge-local-bg:   rgba(77, 242, 153, 0.18);    /* 本機 Ollama:綠 */
+  --backend-badge-local-fg:   var(--found-color);
+  --backend-badge-failed-bg:  rgba(255, 99, 99, 0.18);     /* 失敗:紅 */
+  --backend-badge-failed-fg:  var(--danger-color);
+  --backend-badge-none-bg:    rgba(255, 255, 255, 0.08);   /* 尚未生成 / 空:灰 */
+  --backend-badge-none-fg:    var(--text-dim);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -760,3 +770,51 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 /* 模型下載進度 bar */
 .dl-bar { height: 6px; background: var(--btn-bg); border-radius: 3px; overflow: hidden; margin-top: 8px; }
 .dl-bar-fill { height: 100%; background: var(--accent); transition: width 0.4s ease; }
+
+/* ─── 會議紀錄(摘要)分區 ─── */
+.summary-section { display: flex; flex-direction: column; gap: 10px; }
+
+/* 後端徽章列:客戶版 / 內部版 各自標 */
+.summary-backends { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.summary-backend-group { display: inline-flex; align-items: center; gap: 6px; }
+.summary-backend-label { font-size: 11px; color: var(--text-secondary); }
+.backend-badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 10px; font-weight: 500; white-space: nowrap;
+}
+.backend-badge.cloud  { background: var(--backend-badge-cloud-bg);  color: var(--backend-badge-cloud-fg); }
+.backend-badge.local  { background: var(--backend-badge-local-bg);  color: var(--backend-badge-local-fg); }
+.backend-badge.failed { background: var(--backend-badge-failed-bg); color: var(--backend-badge-failed-fg); }
+.backend-badge.none   { background: var(--backend-badge-none-bg);   color: var(--backend-badge-none-fg); }
+
+/* 強制本地 toggle */
+.summary-force-local { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.summary-force-local-label { font-size: 12px; color: var(--text); font-weight: 500; }
+.summary-force-local-hint { display: block; font-size: 10.5px; color: var(--text-dim); margin-top: 2px; line-height: 1.4; }
+
+/* 客戶版 / 內部版 分頁(沿用既有 .tab-btn) */
+.summary-tabs { display: flex; gap: 6px; border-bottom: 0.5px solid var(--border); padding-bottom: 6px; }
+
+/* 摘要內文 */
+.summary-body {
+  border: 0.5px solid var(--border); border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px 12px; max-height: 320px; overflow-y: auto;
+}
+.summary-md {
+  margin: 0; font-family: inherit; font-size: 12px; line-height: 1.6;
+  color: var(--text); white-space: pre-wrap; word-break: break-word;
+  user-select: text; -webkit-user-select: text;
+}
+.summary-empty { font-size: 11px; color: var(--text-dim); margin: 0; }
+
+/* 內部補充即時預覽 */
+.summary-supplement-preview { margin-top: 12px; padding-top: 10px; border-top: 0.5px solid var(--border); }
+.summary-supplement-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+.summary-supplement-line { display: flex; gap: 8px; margin-bottom: 4px; font-size: 12px; line-height: 1.5; }
+.summary-supplement-ts {
+  font-family: ui-monospace, "SF Mono", monospace; font-size: 10px;
+  color: var(--text-dim); flex-shrink: 0; padding-top: 1px;
+}
+.summary-supplement-text { color: var(--text); }
