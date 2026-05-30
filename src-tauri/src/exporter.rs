@@ -51,6 +51,8 @@ fn fmt_ts(ms: u64) -> String {
 }
 
 /// 從 segments + meta 產生 (public_md, internal_md, timeline_json) 三條字串。
+/// public_md:只含 visibility=public 的段(hard rule #3 — supplement 完全不進此檔)。
+/// internal_md:所有段 + 若有 supplement=true 的段,末尾附加「決議依據 / 內部補充」區塊。
 pub fn export(
     segments: &[Segment],
     meta: &SessionMeta,
@@ -60,10 +62,20 @@ pub fn export(
         "# Meeting Notes — {}\n\n> Source: meeting_system. Mic-internal not included.\n\n",
         meta.started_at
     ), speakers);
-    let internal_md = render_md(segments, "internal", &format!(
+    let mut internal_md = render_md(segments, "internal", &format!(
         "# Meeting — 內部備忘 — {}\n\n> 包含 mic-internal segments(本機麥克風)。**內部用途,不對外發。**\n\n",
         meta.started_at
     ), speakers);
+    // 決議依據 / 內部補充:任何軌 supplement=true 的段,依 start_ms 排序,附在 internal_md 末尾。
+    // public_md 絕對不加(hard rule #3)。
+    let mut supplement_segs: Vec<&Segment> = segments.iter().filter(|s| s.supplement).collect();
+    if !supplement_segs.is_empty() {
+        supplement_segs.sort_by_key(|s| s.start_ms);
+        internal_md.push_str("\n## 決議依據 / 內部補充\n\n");
+        for s in supplement_segs {
+            internal_md.push_str(&format!("[{}] {}\n", fmt_ts(s.start_ms), s.text));
+        }
+    }
     let timeline = serde_json::to_string_pretty(meta).map_err(|e| format!("timeline json: {e}"))?;
     Ok((public_md, internal_md, timeline))
 }
@@ -123,6 +135,7 @@ mod tests {
             confidence: None,
             speaker: None,
             speaker_mixed: false,
+            supplement: false,
         }
     }
 
@@ -256,5 +269,61 @@ mod tests {
         let speakers = vec![SpeakerInfo { id: "S2".into(), display: "亞澤".into(), track: "mic-internal".into() }];
         let (_, int_md, _) = export(&[s], &meta("m"), &speakers).unwrap();
         assert!(int_md.contains("(內部)亞澤: 私聊"), "got: {int_md}");
+    }
+
+    #[test]
+    fn supplement_true_appears_in_internal_section_and_never_in_public() {
+        // 決議依據 / 內部補充:supplement=true 的段出現在 internal_md 末尾區塊,public_md 完全不含。
+        let mut s_pub = seg("p1", "meeting_system", "public", 1000, "客戶主張");
+        s_pub.supplement = true; // 即使是 public 軌,supplement 仍只進 internal
+        let s_int = seg("i1", "mic_internal", "internal", 3000, "我方私聊");
+        let mut s_supp = seg("i2", "mic_internal", "internal", 2000, "這是決議依據");
+        s_supp.supplement = true;
+        let segs = vec![s_pub, s_int, s_supp];
+        let (pub_md, int_md, _) = export(&segs, &meta("t"), &[]).unwrap();
+
+        // ── public.md HARD RULE #3:supplement section 絕對不出現 ──
+        assert!(!pub_md.contains("決議依據 / 內部補充"),
+            "public.md must NOT contain supplement section, got:\n{pub_md}");
+        assert!(!pub_md.contains("這是決議依據"),
+            "public.md must NOT contain supplement text, got:\n{pub_md}");
+
+        // ── internal.md:有 supplement 段時出現區塊標題 ──
+        assert!(int_md.contains("## 決議依據 / 內部補充"),
+            "internal.md should contain supplement section header, got:\n{int_md}");
+        // 兩個 supplement=true 的段都進區塊(依 start_ms:2000 先,1000 後)
+        assert!(int_md.contains("這是決議依據"),
+            "internal.md should contain supplement text, got:\n{int_md}");
+        assert!(int_md.contains("客戶主張"),
+            "internal.md supplement section should contain public-track supplement seg, got:\n{int_md}");
+
+        // ── supplement section 排在 start_ms 升序 ──
+        // 在 supplement 區塊標題之後取子字串,避免 主體段落(start_ms=2000)干擾排序驗證。
+        let supp_section = int_md.split("## 決議依據 / 內部補充").nth(1)
+            .expect("supplement section header should exist in internal_md");
+        let pos_1000_in_supp = supp_section.find("客戶主張").unwrap();
+        let pos_2000_in_supp = supp_section.find("這是決議依據").unwrap();
+        // start_ms 1000(客戶主張)< start_ms 2000(這是決議依據)→ 前者應先出現
+        assert!(pos_1000_in_supp < pos_2000_in_supp,
+            "supplement entries should be sorted by start_ms (1000 before 2000)");
+
+        // ── 非 supplement 的內部段只在主體,不出現在 supplement 區塊 ──
+        // (「我方私聊」應在主體,不該也出現在補充區塊 — 這裡驗它確實存在且不是補充)
+        assert!(int_md.contains("我方私聊"),
+            "internal.md should still contain non-supplement internal seg, got:\n{int_md}");
+    }
+
+    #[test]
+    fn supplement_section_omitted_when_none_flagged() {
+        // 全部 supplement=false(預設)→ internal.md 不出現「決議依據 / 內部補充」區塊。
+        let segs = vec![
+            seg("s1", "meeting_system", "public", 1000, "正常段"),
+            seg("m1", "mic_internal", "internal", 2000, "內部段"),
+        ];
+        let (pub_md, int_md, _) = export(&segs, &meta("t"), &[]).unwrap();
+        assert!(!int_md.contains("決議依據 / 內部補充"),
+            "internal.md should NOT contain supplement section when none flagged, got:\n{int_md}");
+        assert!(!pub_md.contains("決議依據 / 內部補充"),
+            "public.md should never contain supplement section, got:\n{pub_md}");
     }
 }
