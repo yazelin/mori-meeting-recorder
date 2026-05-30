@@ -664,6 +664,37 @@ fn set_segment_speaker(session_id: String, track: String, seg_id: String, speake
     transcribe::write_segments_jsonl(&path, &relabeled)
 }
 
+/// 修正轉錄文字:把指定 track 的 seg_id 那段 text 設成 text(讀 jsonl → relabel_text → 原子寫回)。
+#[tauri::command]
+fn set_segment_text(session_id: String, track: String, seg_id: String, text: String) -> Result<(), String> {
+    let root = session_store::default_meetings_dir().join(&session_id);
+    let jsonl_rel = match track.as_str() {
+        "system" => "transcript/system.segments.jsonl",
+        "mic-internal" => "transcript/mic-internal.segments.jsonl",
+        other => return Err(format!("unknown track: {other}")),
+    };
+    let path = root.join(jsonl_rel);
+    let segs = transcribe::read_segments_jsonl(&path);
+    let relabeled = postprocess::relabel_text(segs, &seg_id, &text);
+    transcribe::write_segments_jsonl(&path, &relabeled)
+}
+
+/// 設定段落的「決議依據 / 內部補充」旗標(supplement=true → 重新匯出時進 internal.md 補充區塊)。
+/// public.md 完全不受影響(hard rule #3)。
+#[tauri::command]
+fn set_segment_supplement(session_id: String, track: String, seg_id: String, supplement: bool) -> Result<(), String> {
+    let root = session_store::default_meetings_dir().join(&session_id);
+    let jsonl_rel = match track.as_str() {
+        "system" => "transcript/system.segments.jsonl",
+        "mic-internal" => "transcript/mic-internal.segments.jsonl",
+        other => return Err(format!("unknown track: {other}")),
+    };
+    let path = root.join(jsonl_rel);
+    let segs = transcribe::read_segments_jsonl(&path);
+    let relabeled = postprocess::relabel_supplement(segs, &seg_id, supplement);
+    transcribe::write_segments_jsonl(&path, &relabeled)
+}
+
 // ── C4: 聲紋 commands ─────────────────────────────────────────────────────────
 
 /// 聲紋嵌入模型(= 分人那顆 emb 模型)是否已安裝。
@@ -845,6 +876,9 @@ fn main() {
             // C3: diarization correction commands
             merge_speakers,
             set_segment_speaker,
+            // C3+: transcript text edit + supplement flag
+            set_segment_text,
+            set_segment_supplement,
             // C4: voiceprint commands
             voiceprint_models_present,
             enroll_voice_start,

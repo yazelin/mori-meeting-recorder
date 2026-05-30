@@ -38,6 +38,26 @@ pub fn relabel_one(mut segs: Vec<Segment>, seg_id: &str, speaker_id: &str) -> Ve
     segs
 }
 
+/// 把 id == seg_id 的段 text 設成 text(修正轉錄錯誤);其餘不動。
+pub fn relabel_text(mut segs: Vec<Segment>, seg_id: &str, text: &str) -> Vec<Segment> {
+    for s in &mut segs {
+        if s.id == seg_id {
+            s.text = text.to_string();
+        }
+    }
+    segs
+}
+
+/// 把 id == seg_id 的段 supplement 設成 value(標記決議依據 / 內部補充);其餘不動。
+pub fn relabel_supplement(mut segs: Vec<Segment>, seg_id: &str, value: bool) -> Vec<Segment> {
+    for s in &mut segs {
+        if s.id == seg_id {
+            s.supplement = value;
+        }
+    }
+    segs
+}
+
 /// 從 speakers 清單濾掉 drop_ids(合併後移除被併走的講者列)。
 pub fn drop_speakers(list: Vec<SpeakerInfo>, drop_ids: &[String]) -> Vec<SpeakerInfo> {
     list.into_iter().filter(|s| !drop_ids.iter().any(|d| d == &s.id)).collect()
@@ -238,6 +258,7 @@ mod tests {
             visibility: "public".into(), start_ms: 0, end_ms: 1000, text: "x".into(),
             is_final: true, confidence: None,
             speaker: speaker.map(|s| s.to_string()), speaker_mixed: false,
+            supplement: false,
         }
     }
 
@@ -265,6 +286,34 @@ mod tests {
     }
 
     #[test]
+    fn relabel_text_changes_only_matching_seg() {
+        let segs = vec![
+            seg_with("a", "system", None),
+            seg_with("b", "system", None),
+        ];
+        let out = relabel_text(segs, "b", "修正後的文字");
+        assert_eq!(out[0].text, "x");          // 非目標段不動
+        assert_eq!(out[1].text, "修正後的文字"); // 目標段改掉
+    }
+
+    #[test]
+    fn relabel_supplement_changes_only_matching_seg() {
+        let segs = vec![
+            seg_with("a", "system", None),
+            seg_with("b", "system", None),
+        ];
+        // 預設都是 false
+        assert!(!segs[0].supplement);
+        assert!(!segs[1].supplement);
+        let out = relabel_supplement(segs, "b", true);
+        assert!(!out[0].supplement); // 非目標段不動
+        assert!(out[1].supplement);  // 目標段設成 true
+        // 再設回 false
+        let out2 = relabel_supplement(out, "b", false);
+        assert!(!out2[1].supplement);
+    }
+
+    #[test]
     fn drop_speakers_filters_listed_ids() {
         let list = vec![
             SpeakerInfo { id: "S1".into(), display: "甲".into(), track: "system".into() },
@@ -289,6 +338,7 @@ mod tests {
             confidence: None,
             speaker: speaker.map(|s| s.to_string()),
             speaker_mixed: false,
+            supplement: false,
         }
     }
 
@@ -349,6 +399,7 @@ mod tests {
             confidence: None,
             speaker: Some("S1".into()),
             speaker_mixed: false,
+            supplement: false,
         };
         std::fs::write(
             transcript_dir.join("system.segments.jsonl"),
@@ -370,6 +421,7 @@ mod tests {
             confidence: None,
             speaker: None,
             speaker_mixed: false,
+            supplement: false,
         };
         std::fs::write(
             transcript_dir.join("mic-internal.segments.jsonl"),
@@ -455,6 +507,7 @@ mod tests {
             confidence: None,
             speaker: None,
             speaker_mixed: false,
+            supplement: false,
         };
         let seg_late = Segment {
             id: "s1".into(),
@@ -469,6 +522,7 @@ mod tests {
             confidence: None,
             speaker: None,
             speaker_mixed: false,
+            supplement: false,
         };
         std::fs::write(
             transcript_dir.join("system.segments.jsonl"),

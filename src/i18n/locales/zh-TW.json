@@ -103,7 +103,14 @@
     "reexporting": "匯出中…",
     "reexport_ok": "匯出完成",
     "src_system": "系統",
-    "src_mic": "麥克風"
+    "src_mic": "麥克風",
+    "text_edit_hint": "Ctrl/Cmd+Enter 儲存 · Esc 取消",
+    "text_edit_click_hint": "點擊編輯文字",
+    "text_edit_save": "儲存",
+    "text_edit_cancel": "取消",
+    "supplement_label": "決議依據",
+    "supplement_toggle": "決議依據",
+    "supplement_hint": "標『決議依據』的段會收進內部版(internal.md)的『決議依據/內部補充』區;不會進客戶版"
   },
   "people": {
     "title": "人員",

@@ -277,6 +277,7 @@ mod tests {
             confidence: None,
             speaker: None,
             speaker_mixed: false,
+            supplement: false,
         }
     }
 

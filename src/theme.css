@@ -43,10 +43,12 @@
   --vu-seg-h:  18px;
 
   /* Seg pill token(留給 PR3) */
-  --seg-pill-public-bg:   rgba(77, 242, 153, 0.18);
-  --seg-pill-public-fg:   var(--found-color);
-  --seg-pill-internal-bg: rgba(255, 179, 64, 0.18);
-  --seg-pill-internal-fg: var(--waiting-color);
+  --seg-pill-public-bg:       rgba(77, 242, 153, 0.18);
+  --seg-pill-public-fg:       var(--found-color);
+  --seg-pill-internal-bg:     rgba(255, 179, 64, 0.18);
+  --seg-pill-internal-fg:     var(--waiting-color);
+  --seg-pill-supplement-bg:   rgba(255, 138, 80, 0.18);
+  --seg-pill-supplement-fg:   var(--accent);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }

@@ -22,6 +22,7 @@ interface Segment {
   confidence: number | null;
   speaker: string | null;
   speaker_mixed: boolean;
+  supplement: boolean;
 }
 
 interface SpeakerInfo {
@@ -89,6 +90,13 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
 
   // Per-segment speaker reassign loading
   const [segSaving, setSegSaving] = useState<Record<string, boolean>>({});
+
+  // Per-segment text edit state
+  const [segTextEditing, setSegTextEditing] = useState<Record<string, string | null>>({});
+  const [segTextSaving, setSegTextSaving] = useState<Record<string, boolean>>({});
+
+  // Per-segment supplement toggle saving
+  const [segSupplementSaving, setSegSupplementSaving] = useState<Record<string, boolean>>({});
 
   const loadAll = useCallback(async () => {
     setLoadErr(null);
@@ -239,6 +247,48 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
       console.error("set_segment_speaker:", e);
     } finally {
       setSegSaving((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const saveSegmentText = async (seg: Segment, text: string) => {
+    const key = `${seg.track}-${seg.id}`;
+    // No change — just close editor
+    if (text === seg.text) {
+      setSegTextEditing((prev) => ({ ...prev, [key]: null }));
+      return;
+    }
+    setSegTextSaving((prev) => ({ ...prev, [key]: true }));
+    try {
+      await invoke("set_segment_text", {
+        sessionId,
+        track: seg.track,
+        segId: seg.id,
+        text,
+      });
+      await reloadTranscript();
+    } catch (e: any) {
+      console.error("set_segment_text:", e);
+    } finally {
+      setSegTextSaving((prev) => ({ ...prev, [key]: false }));
+      setSegTextEditing((prev) => ({ ...prev, [key]: null }));
+    }
+  };
+
+  const toggleSegmentSupplement = async (seg: Segment) => {
+    const key = `${seg.track}-${seg.id}`;
+    setSegSupplementSaving((prev) => ({ ...prev, [key]: true }));
+    try {
+      await invoke("set_segment_supplement", {
+        sessionId,
+        track: seg.track,
+        segId: seg.id,
+        supplement: !seg.supplement,
+      });
+      await reloadTranscript();
+    } catch (e: any) {
+      console.error("set_segment_supplement:", e);
+    } finally {
+      setSegSupplementSaving((prev) => ({ ...prev, [key]: false }));
     }
   };
 
@@ -442,7 +492,11 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
           {segments.map((seg) => {
             const segKey = `${seg.track}-${seg.id}`;
             const display = seg.speaker ? (speakerDisplay[seg.speaker] ?? seg.speaker) : t("workspace.unknown_speaker");
-            const isSaving = segSaving[segKey] ?? false;
+            const isSpeakerSaving = segSaving[segKey] ?? false;
+            const editingText = segTextEditing[segKey] ?? null;
+            const isTextEditing = editingText !== null;
+            const isTextSaving = segTextSaving[segKey] ?? false;
+            const isSupplementSaving = segSupplementSaving[segKey] ?? false;
             return (
               <div key={segKey} style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 12, lineHeight: 1.5, alignItems: "flex-start" }}>
                 <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 10, color: "var(--text-dim)", flexShrink: 0, paddingTop: 3 }}>
@@ -463,7 +517,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                       options={speakerOptions}
                       onChange={(newId) => setSegmentSpeaker(seg, newId)}
                     />
-                    {isSaving && (
+                    {isSpeakerSaving && (
                       <span className="spinner-rotate" style={{ fontSize: 10, color: "var(--text-dim)", position: "absolute", top: 0, right: -14 }}>↻</span>
                     )}
                   </span>
@@ -505,7 +559,93 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                     {t("workspace.mixed_badge")}
                   </span>
                 )}
-                <span style={{ color: "var(--text)" }}>{seg.text}</span>
+                {/* Feature A: inline text edit */}
+                {isTextEditing ? (
+                  <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                    <textarea
+                      autoFocus
+                      disabled={isTextSaving}
+                      value={editingText}
+                      onChange={(e) =>
+                        setSegTextEditing((prev) => ({ ...prev, [segKey]: e.target.value }))
+                      }
+                      onBlur={(e) => saveSegmentText(seg, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setSegTextEditing((prev) => ({ ...prev, [segKey]: null }));
+                        } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                          e.preventDefault();
+                          saveSegmentText(seg, editingText);
+                        }
+                      }}
+                      rows={2}
+                      style={{
+                        width: "100%",
+                        background: "var(--btn-bg)",
+                        color: "var(--text)",
+                        border: "0.5px solid var(--accent-dim)",
+                        borderRadius: 6,
+                        padding: "4px 7px",
+                        fontSize: 12,
+                        fontFamily: "inherit",
+                        resize: "vertical",
+                        lineHeight: 1.5,
+                        userSelect: "text",
+                        WebkitUserSelect: "text",
+                        opacity: isTextSaving ? 0.5 : 1,
+                      }}
+                    />
+                    <span style={{ fontSize: 10, color: "var(--text-dim)" }}>
+                      {isTextSaving
+                        ? <span className="spinner-rotate" style={{ marginRight: 4 }}>↻</span>
+                        : t("workspace.text_edit_hint")}
+                    </span>
+                  </span>
+                ) : (
+                  <span
+                    style={{ color: "var(--text)", flex: 1, minWidth: 0, cursor: "text" }}
+                    title={t("workspace.text_edit_click_hint")}
+                    onClick={() =>
+                      setSegTextEditing((prev) => ({ ...prev, [segKey]: seg.text }))
+                    }
+                  >
+                    {seg.text}
+                  </span>
+                )}
+                {/* Feature B: supplement badge + toggle */}
+                {seg.supplement && (
+                  <span
+                    className="seg-pill"
+                    style={{
+                      flexShrink: 0,
+                      alignSelf: "center",
+                      background: "var(--seg-pill-supplement-bg)",
+                      color: "var(--seg-pill-supplement-fg)",
+                    }}
+                    title={t("workspace.supplement_hint")}
+                  >
+                    {t("workspace.supplement_label")}
+                  </span>
+                )}
+                <button
+                  className="mmr-btn"
+                  disabled={isSupplementSaving}
+                  onClick={() => toggleSegmentSupplement(seg)}
+                  title={t("workspace.supplement_hint")}
+                  style={{
+                    flexShrink: 0,
+                    alignSelf: "center",
+                    padding: "2px 7px",
+                    fontSize: 10,
+                    borderRadius: 6,
+                    opacity: seg.supplement ? 1 : 0.45,
+                  }}
+                >
+                  {isSupplementSaving
+                    ? <span className="spinner-rotate">↻</span>
+                    : t("workspace.supplement_toggle")}
+                </button>
               </div>
             );
           })}
