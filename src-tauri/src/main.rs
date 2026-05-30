@@ -4,6 +4,7 @@ pub mod audio;
 pub mod config;
 pub mod diarize;
 pub mod exporter;
+pub mod file_transcribe;
 pub mod manifest;
 pub mod postprocess;
 pub mod recorder;
@@ -32,6 +33,7 @@ static DL_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Serialize)]
 struct DepsCheck {
+    ffmpeg_ok: bool,
     whisper_cli_ok: bool,
     whisper_cli_path: String,
     model_ok: bool,
@@ -63,6 +65,7 @@ fn deps_check() -> DepsCheck {
     let bin = transcribe::whisper_bin_path();
     let model = transcribe::whisper_model_path();
     DepsCheck {
+        ffmpeg_ok: file_transcribe::ffmpeg_present(),
         whisper_cli_ok: bin.exists() && bin.is_file(),
         whisper_cli_path: bin.to_string_lossy().to_string(),
         model_ok: model.exists()
@@ -71,6 +74,25 @@ fn deps_check() -> DepsCheck {
                 .unwrap_or(false),
         model_path: model.to_string_lossy().to_string(),
     }
+}
+
+/// 檔案轉錄:單檔 → 逐字稿。whisper 重活丟 spawn_blocking(同 recorder_stop),
+/// 不卡 Tauri runtime worker → 轉錄期間 UI polling 照常。
+#[tauri::command]
+async fn file_transcribe_one(path: String) -> Result<file_transcribe::FileTranscript, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        file_transcribe::transcribe_file(std::path::Path::new(&path))
+    })
+    .await
+    .map_err(|e| format!("join blocking task: {e}"))?
+}
+
+/// 把逐字稿存成來源檔旁邊的 `<name>.txt`。
+#[tauri::command]
+fn file_transcribe_save_txt(source_path: String, text: String) -> Result<String, String> {
+    let out = std::path::Path::new(&source_path).with_extension("txt");
+    std::fs::write(&out, text).map_err(|e| format!("write {}: {e}", out.display()))?;
+    Ok(out.display().to_string())
 }
 
 #[tauri::command]
@@ -887,6 +909,8 @@ fn main() {
             recorder_stop,
             recorder_status,
             deps_check,
+            file_transcribe_one,
+            file_transcribe_save_txt,
             get_config,
             set_config,
             set_meeting_info,
