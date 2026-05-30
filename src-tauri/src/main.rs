@@ -649,9 +649,10 @@ fn merge_speakers(session_id: String, keep_id: String, merge_ids: Vec<String>) -
     diarize::write_speakers(&sp_path, &kept)
 }
 
-/// 逐段改講者:把指定 track 的 seg_id 那段 speaker 設成 speaker_id(讀 jsonl → relabel_one → 原子寫回)。
+/// 逐段改講者:把指定 track 的 start_ms 那段 speaker 設成 speaker_id(讀 jsonl → relabel_one → 原子寫回)。
+/// 用 start_ms 而非 seg_id 定位:VAD 每 clip 重設 id,同一軌多段可能同 id,start_ms 唯一。
 #[tauri::command]
-fn set_segment_speaker(session_id: String, track: String, seg_id: String, speaker_id: String) -> Result<(), String> {
+fn set_segment_speaker(session_id: String, track: String, start_ms: u64, speaker_id: String) -> Result<(), String> {
     let root = session_store::default_meetings_dir().join(&session_id);
     let jsonl_rel = match track.as_str() {
         "system" => "transcript/system.segments.jsonl",
@@ -660,13 +661,13 @@ fn set_segment_speaker(session_id: String, track: String, seg_id: String, speake
     };
     let path = root.join(jsonl_rel);
     let segs = transcribe::read_segments_jsonl(&path);
-    let relabeled = postprocess::relabel_one(segs, &seg_id, &speaker_id);
+    let relabeled = postprocess::relabel_one(segs, start_ms, &speaker_id);
     transcribe::write_segments_jsonl(&path, &relabeled)
 }
 
-/// 修正轉錄文字:把指定 track 的 seg_id 那段 text 設成 text(讀 jsonl → relabel_text → 原子寫回)。
+/// 修正轉錄文字:把指定 track 的 start_ms 那段 text 設成 text(讀 jsonl → relabel_text → 原子寫回)。
 #[tauri::command]
-fn set_segment_text(session_id: String, track: String, seg_id: String, text: String) -> Result<(), String> {
+fn set_segment_text(session_id: String, track: String, start_ms: u64, text: String) -> Result<(), String> {
     let root = session_store::default_meetings_dir().join(&session_id);
     let jsonl_rel = match track.as_str() {
         "system" => "transcript/system.segments.jsonl",
@@ -675,14 +676,14 @@ fn set_segment_text(session_id: String, track: String, seg_id: String, text: Str
     };
     let path = root.join(jsonl_rel);
     let segs = transcribe::read_segments_jsonl(&path);
-    let relabeled = postprocess::relabel_text(segs, &seg_id, &text);
+    let relabeled = postprocess::relabel_text(segs, start_ms, &text);
     transcribe::write_segments_jsonl(&path, &relabeled)
 }
 
 /// 設定段落的「決議依據 / 內部補充」旗標(supplement=true → 重新匯出時進 internal.md 補充區塊)。
 /// public.md 完全不受影響(hard rule #3)。
 #[tauri::command]
-fn set_segment_supplement(session_id: String, track: String, seg_id: String, supplement: bool) -> Result<(), String> {
+fn set_segment_supplement(session_id: String, track: String, start_ms: u64, supplement: bool) -> Result<(), String> {
     let root = session_store::default_meetings_dir().join(&session_id);
     let jsonl_rel = match track.as_str() {
         "system" => "transcript/system.segments.jsonl",
@@ -691,7 +692,7 @@ fn set_segment_supplement(session_id: String, track: String, seg_id: String, sup
     };
     let path = root.join(jsonl_rel);
     let segs = transcribe::read_segments_jsonl(&path);
-    let relabeled = postprocess::relabel_supplement(segs, &seg_id, supplement);
+    let relabeled = postprocess::relabel_supplement(segs, start_ms, supplement);
     transcribe::write_segments_jsonl(&path, &relabeled)
 }
 

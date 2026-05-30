@@ -28,30 +28,32 @@ pub fn relabel_merge(mut segs: Vec<Segment>, keep_id: &str, merge_ids: &[String]
     segs
 }
 
-/// 把 id == seg_id 的段 speaker 設成 speaker_id(逐段改講者)。
-pub fn relabel_one(mut segs: Vec<Segment>, seg_id: &str, speaker_id: &str) -> Vec<Segment> {
+/// 把 start_ms == start_ms 的段 speaker 設成 speaker_id(逐段改講者)。
+/// 用 start_ms 定位:VAD 每段 id 重設從 seg_001 起,同一軌可能多段同 id;
+/// 但 start_ms 在同一軌中唯一。
+pub fn relabel_one(mut segs: Vec<Segment>, start_ms: u64, speaker_id: &str) -> Vec<Segment> {
     for s in &mut segs {
-        if s.id == seg_id {
+        if s.start_ms == start_ms {
             s.speaker = Some(speaker_id.to_string());
         }
     }
     segs
 }
 
-/// 把 id == seg_id 的段 text 設成 text(修正轉錄錯誤);其餘不動。
-pub fn relabel_text(mut segs: Vec<Segment>, seg_id: &str, text: &str) -> Vec<Segment> {
+/// 把 start_ms == start_ms 的段 text 設成 text(修正轉錄錯誤);其餘不動。
+pub fn relabel_text(mut segs: Vec<Segment>, start_ms: u64, text: &str) -> Vec<Segment> {
     for s in &mut segs {
-        if s.id == seg_id {
+        if s.start_ms == start_ms {
             s.text = text.to_string();
         }
     }
     segs
 }
 
-/// 把 id == seg_id 的段 supplement 設成 value(標記決議依據 / 內部補充);其餘不動。
-pub fn relabel_supplement(mut segs: Vec<Segment>, seg_id: &str, value: bool) -> Vec<Segment> {
+/// 把 start_ms == start_ms 的段 supplement 設成 value(標記決議依據 / 內部補充);其餘不動。
+pub fn relabel_supplement(mut segs: Vec<Segment>, start_ms: u64, value: bool) -> Vec<Segment> {
     for s in &mut segs {
-        if s.id == seg_id {
+        if s.start_ms == start_ms {
             s.supplement = value;
         }
     }
@@ -277,39 +279,55 @@ mod tests {
         assert_eq!(out[3].speaker, None);                   // None 不動
     }
 
-    #[test]
-    fn relabel_one_only_changes_matching_seg_id() {
-        let segs = vec![seg_with("a", "system", Some("S1")), seg_with("b", "system", Some("S1"))];
-        let out = relabel_one(segs, "b", "S2");
-        assert_eq!(out[0].speaker.as_deref(), Some("S1"));
-        assert_eq!(out[1].speaker.as_deref(), Some("S2"));
+    fn seg_with_ms(id: &str, track: &str, speaker: Option<&str>, start_ms: u64, end_ms: u64) -> Segment {
+        Segment {
+            id: id.into(), session_id: "m".into(), track: track.into(),
+            source_kind: if track == "system" { "meeting_system".into() } else { "mic_internal".into() },
+            visibility: "public".into(), start_ms, end_ms, text: "x".into(),
+            is_final: true, confidence: None,
+            speaker: speaker.map(|s| s.to_string()), speaker_mixed: false,
+            supplement: false,
+        }
     }
 
     #[test]
-    fn relabel_text_changes_only_matching_seg() {
+    fn relabel_one_only_changes_matching_start_ms() {
+        // 兩段同 id(模擬 VAD 每 clip 重設 seg_001 的真實情況)
         let segs = vec![
-            seg_with("a", "system", None),
-            seg_with("b", "system", None),
+            seg_with_ms("seg_001", "system", Some("S1"), 0, 1000),
+            seg_with_ms("seg_001", "system", Some("S1"), 2000, 3000),
         ];
-        let out = relabel_text(segs, "b", "修正後的文字");
-        assert_eq!(out[0].text, "x");          // 非目標段不動
-        assert_eq!(out[1].text, "修正後的文字"); // 目標段改掉
+        // 只改 start_ms=2000 那段
+        let out = relabel_one(segs, 2000, "S2");
+        assert_eq!(out[0].speaker.as_deref(), Some("S1")); // start_ms=0,不動
+        assert_eq!(out[1].speaker.as_deref(), Some("S2")); // start_ms=2000,改掉
     }
 
     #[test]
-    fn relabel_supplement_changes_only_matching_seg() {
+    fn relabel_text_changes_only_matching_start_ms() {
         let segs = vec![
-            seg_with("a", "system", None),
-            seg_with("b", "system", None),
+            seg_with_ms("seg_001", "system", None, 0, 1000),
+            seg_with_ms("seg_001", "system", None, 2000, 3000),
+        ];
+        let out = relabel_text(segs, 2000, "修正後的文字");
+        assert_eq!(out[0].text, "x");          // start_ms=0,不動
+        assert_eq!(out[1].text, "修正後的文字"); // start_ms=2000,改掉
+    }
+
+    #[test]
+    fn relabel_supplement_changes_only_matching_start_ms() {
+        let segs = vec![
+            seg_with_ms("seg_001", "system", None, 0, 1000),
+            seg_with_ms("seg_001", "system", None, 2000, 3000),
         ];
         // 預設都是 false
         assert!(!segs[0].supplement);
         assert!(!segs[1].supplement);
-        let out = relabel_supplement(segs, "b", true);
-        assert!(!out[0].supplement); // 非目標段不動
-        assert!(out[1].supplement);  // 目標段設成 true
+        let out = relabel_supplement(segs, 2000, true);
+        assert!(!out[0].supplement); // start_ms=0,不動
+        assert!(out[1].supplement);  // start_ms=2000,設成 true
         // 再設回 false
-        let out2 = relabel_supplement(out, "b", false);
+        let out2 = relabel_supplement(out, 2000, false);
         assert!(!out2[1].supplement);
     }
 
