@@ -620,8 +620,8 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                     style={{
                       flexShrink: 0,
                       alignSelf: "center",
-                      background: "rgba(255, 138, 80, 0.18)",
-                      color: "var(--accent)",
+                      background: "var(--seg-pill-supplement-bg)",
+                      color: "var(--seg-pill-supplement-fg)",
                     }}
                     title={t("workspace.supplement_hint")}
                   >
