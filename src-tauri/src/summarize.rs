@@ -1423,6 +1423,40 @@ mod tests {
         assert_eq!(v.get("public_backend").and_then(|x| x.as_str()), Some("ollama"));
     }
 
+    // ── 部分成功:public 失敗、internal 成功 → Err、internal.md 已寫、public.md 不被覆寫 ──
+    #[test]
+    fn partial_success_internal_ok_public_fail_keeps_old_public_and_errors() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let store = store_at(root);
+        // 先放一份舊的好 public 摘要 → public 那遍失敗時不該被覆寫。
+        std::fs::create_dir_all(root).unwrap();
+        std::fs::write(store.summary_public_md_path(), "舊的好客戶版").unwrap();
+
+        let segments = mixed_segments();
+        let err = run_summary_pipeline(
+            &store,
+            false,
+            &segments,
+            &fail_chain(),
+            &ok_chain("新內部版"),
+        )
+        .unwrap_err();
+        assert!(err.contains("客戶版摘要失敗"), "err should name public failure: {err}");
+
+        // internal.md 已寫成功;public.md 維持舊內容(不被失敗那遍覆寫)。
+        let int_md = std::fs::read_to_string(store.summary_internal_md_path()).unwrap();
+        assert_eq!(int_md, "新內部版");
+        let pub_md = std::fs::read_to_string(store.summary_public_md_path()).unwrap();
+        assert_eq!(pub_md, "舊的好客戶版", "failed public pass must not overwrite old file");
+
+        // audit 仍 append 一行,public_backend = "(failed)"、internal_backend = "ollama"。
+        let audit = std::fs::read_to_string(store.summary_audit_path()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(audit.lines().next().unwrap()).unwrap();
+        assert_eq!(v.get("public_backend").and_then(|x| x.as_str()), Some("(failed)"));
+        assert_eq!(v.get("internal_backend").and_then(|x| x.as_str()), Some("ollama"));
+    }
+
     // ── 兩遍都失敗 → Err 含「雲端與本機都無法處理」、舊檔不被覆寫 ──
     #[test]
     fn both_passes_fail_merges_into_single_error() {
