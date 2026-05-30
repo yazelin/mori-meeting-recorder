@@ -221,6 +221,12 @@ html, body {
 .expanded-body {
   padding: 14px;
   overflow: auto;
+  /* flex:1 is set inline in ExpandedView; need min-height:0 so children can
+     flex-shrink below content size, and display:flex so children get a height
+     context for their own flex:1 to resolve against. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 /* generic button */
