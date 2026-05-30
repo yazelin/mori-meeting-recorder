@@ -837,6 +837,10 @@ fn main() {
             if let Err(e) = manifest::write_on_startup() {
                 eprintln!("write manifest: {e}");
             }
+            // 共享 whisper supervisor:啟動時 best-effort 種一份到 ~/.mori/bin,讓**任何 app**
+            // (含非 Rust 的 `--ensure`)之後都找得到。背景做、不卡 startup、不卡 record-start hot path;
+            // 無條件(不看當下有沒有 server 在跑),失敗不致命。契約 §11。
+            std::thread::spawn(|| crate::whisper_discovery::install_shared_supervisor());
             // Tray
             let toggle = MenuItem::with_id(app, "toggle", "顯示 / 隱藏", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "結束", true, None::<&str>)?;

@@ -118,3 +118,7 @@ printf '%s\n' "$sanity_out" | head -2
 echo "✓ whisper-cli loads OK"
 echo ""
 echo "✓ ready: $bin_dir/whisper-cli + $model_dir/ggml-small.bin"
+echo ""
+echo "→ 共享 whisper 服務(讓任何 app 隨需喚醒、閒置 10 分鐘自關):"
+echo "    bash scripts/install-supervisor.sh   # 裝 mori-whisper-serve 到 ~/.mori/bin"
+echo "    ~/.mori/bin/mori-whisper-serve --ensure   # 喚醒(冪等)"

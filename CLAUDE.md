@@ -23,6 +23,7 @@ Observer Mode MVP:雙軌(`meeting_system` + `mic_internal`)→ 停止後 whisper
 
 - **平台 audio lib 各家**:Linux 走 libpulse(對齊 OBS linux-pulseaudio plugin);Windows 走 cpal WASAPI loopback(對齊 mori-desktop)。Task 1 spike 已驗證 cpal Linux 看不到 PipeWire `.monitor` source。
 - **共用 ~/.mori/ 路徑**:`~/.mori/bin/whisper-cli` 跟 `~/.mori/models/ggml-small.bin` 跟 mori-desktop 共享(filesystem 慣例,不 IPC)
+- **共享 whisper 服務隨需啟動**:啟動邏輯住共用模組 `whisper_discovery::ensure_server(model)`(**不要**再寫在 recorder.rs)。supervisor `mori-whisper-serve` 裝在 `~/.mori/bin/`(跟 whisper-cli 同窩),任何 app 都能喚醒:Rust 呼 `ensure_server`、非 Rust 跑 `mori-whisper-serve --ensure`(冪等、自我背景化)。閒置 TTL 用共用常數 `whisper_discovery::DEFAULT_IDLE_SECS=600`(別各寫各的 600)。契約 = `agentos-notebook/05-mori-migration/whisper-server-contract.md` §11。
 - **UI css token 自己一套**:不沿 mori-desktop var(--c-*),`src/theme.css` 自己定義
 - **單視窗切 size**:collapsed 360×60(膠囊),expanded 720×480(3-tab),`window.setSize` 在前後端切
 - **Tauri v2 auto-camelCase**:`event_id: String` Rust 對應 JS `eventId`

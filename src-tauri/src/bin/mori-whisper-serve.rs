@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use whisper_discovery::WhisperServerDescriptor;
 
-const DEFAULT_IDLE_SECS: u64 = 600; // 10 分鐘(可 --idle-secs 調)
+const DEFAULT_IDLE_SECS: u64 = whisper_discovery::DEFAULT_IDLE_SECS; // 共用單一事實來源(10 分鐘),可 --idle-secs 調
 const READY_TIMEOUT_SECS: u64 = 90; // large-v3-turbo 載入較久,給足
 const REAP_CHECK_SECS: u64 = 15; // 每 15s 檢查一次閒置 / child 是否還在
 
@@ -42,6 +42,7 @@ struct Args {
     port: Option<u16>,
     threads: u32,
     stop: bool,
+    ensure: bool,
     help: bool,
 }
 
@@ -53,6 +54,7 @@ fn parse_args() -> Args {
         port: None,
         threads: 4,
         stop: false,
+        ensure: false,
         help: false,
     };
     let mut it = std::env::args().skip(1);
@@ -64,6 +66,7 @@ fn parse_args() -> Args {
             "--port" => a.port = it.next().and_then(|s| s.parse().ok()),
             "--threads" => a.threads = it.next().and_then(|s| s.parse().ok()).unwrap_or(a.threads),
             "--stop" => a.stop = true,
+            "--ensure" => a.ensure = true,
             "-h" | "--help" => a.help = true,
             other => eprintln!("[whisper-serve] ignoring unknown arg: {other}"),
         }
@@ -196,6 +199,9 @@ fn spawn_server(args: &Args, port: u16) -> Result<Child, String> {
         cmd.pre_exec(|| {
             // child 在 supervisor 先死時收到 SIGTERM,避免變孤兒繼續佔 VRAM。
             libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM as libc::c_ulong, 0, 0, 0);
+            // 關掉繼承來的 fd(尤其 supervisor 持的 flock)→ whisper-server 不該守住單例鎖
+            // (memory: mori-spawn-close-fds-linux)。stdout/stderr 已 dup2 到 1/2,關 ≥3 不影響活動監看。
+            whisper_discovery::close_inherited_fds();
             Ok(())
         });
     }
@@ -242,6 +248,44 @@ fn do_stop() {
     // 不刪 lockfile:被殺的 supervisor 行程死亡時 flock/handle 自動釋放,lockfile 留著當下次的鎖對象。
 }
 
+/// `--ensure`:語言無關的「確保 server 在跑」入口(契約 §11 Activation,冪等 + 非阻塞)。
+/// 有活的 server → 立刻回;沒有 → 把**自己**以背景化 supervise 模式重啟、馬上 exit 0。
+/// 於是 python(mori-ear)/ shell / 資料 app 只要一行 `mori-whisper-serve --ensure`,
+/// 不用自己處理「丟背景」就能喚醒共享 server。連打安全(supervise 子程序靠 flock 單例,不會雙開)。
+fn do_ensure(args: &Args) {
+    if let Some(desc) = whisper_discovery::reachable_server() {
+        eprintln!(
+            "[whisper-serve] already running at {} (model={}); nothing to do",
+            desc.base_url(),
+            desc.model
+        );
+        return;
+    }
+    // 對齊 ensure_server:best-effort 把自己種進 ~/.mori/bin,再從**共用點**起(讓往後任何 app 都找得到)。
+    // 若 current_exe 就是共用點則 install no-op;找不到共用點就退回 current_exe。
+    whisper_discovery::install_shared_supervisor();
+    let bin = match whisper_discovery::locate_supervisor().or_else(|| std::env::current_exe().ok()) {
+        Some(p) => p,
+        None => {
+            eprintln!("[whisper-serve] --ensure: 找不到 supervisor binary(locate + current_exe 都失敗)");
+            std::process::exit(1);
+        }
+    };
+    // 背景化 spawn 的是「裸 supervise 模式」(無 --ensure)→ 不會無限自我 re-ensure。
+    match whisper_discovery::spawn_supervisor_detached(&bin, &args.model, args.idle_secs) {
+        Ok(()) => eprintln!(
+            "[whisper-serve] ensured: detached supervisor spawned (model={}, idle-secs={}, bin={})",
+            args.model,
+            args.idle_secs,
+            bin.display()
+        ),
+        Err(e) => {
+            eprintln!("[whisper-serve] --ensure spawn failed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn kill_pid(pid: u32) {
     #[cfg(unix)]
     unsafe {
@@ -267,6 +311,8 @@ const HELP: &str = "mori-whisper-serve — 共享 whisper-server supervisor(idle
   --host <HOST>                    預設 127.0.0.1
   --port <PORT>                    指定埠(預設自動選空閒埠)
   --threads <N>                    whisper-server 執行緒(預設 4)
+  --ensure                         確保共享 server 在跑(沒有就背景拉起),冪等 + 馬上返回。
+                                   任何 app / 腳本喚醒本地 whisper 用這個。
   --stop                           停掉目前在跑的共享 server
   -h, --help                       這個說明";
 
@@ -278,6 +324,11 @@ fn main() {
     }
     if args.stop {
         do_stop();
+        return;
+    }
+    if args.ensure {
+        // 語言無關的隨需喚醒:確保有 server,馬上返回(背景化 supervise 由 do_ensure spawn)。
+        do_ensure(&args);
         return;
     }
 
