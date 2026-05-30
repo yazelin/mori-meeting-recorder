@@ -21,6 +21,10 @@ pub struct Segment {
     pub speaker: Option<String>,
     #[serde(default)]
     pub speaker_mixed: bool,
+    /// 決議依據 / 內部補充:true → 這段在 internal.md 末尾加入「決議依據 / 內部補充」區塊。
+    /// public.md 完全不受影響(hard rule #3)。
+    #[serde(default)]
+    pub supplement: bool,
 }
 
 /// 把 whisper 輸出壓成單行:whisper 會在內部斷句處塞 `\n`(一段含多句 → 多行),
@@ -75,6 +79,7 @@ pub fn parse_whisper_json(
             confidence: r.confidence,
             speaker: None,
             speaker_mixed: false,
+            supplement: false,
         })
         .collect();
     Ok(segs)
@@ -230,6 +235,7 @@ fn parse_server_json(
         confidence: None,
         speaker: None,
         speaker_mixed: false,
+        supplement: false,
     }))
 }
 
@@ -512,6 +518,7 @@ mod tests {
             confidence: None,
             speaker: None,
             speaker_mixed: false,
+            supplement: false,
         }
     }
 
@@ -742,5 +749,13 @@ mod tests {
         let s: Segment = serde_json::from_str(line).unwrap();
         assert_eq!(s.speaker, None);
         assert!(!s.speaker_mixed);
+    }
+
+    #[test]
+    fn segment_supplement_defaults_false_when_absent_from_old_jsonl() {
+        // 舊 jsonl(沒有 supplement 欄位)反序列化 → supplement 應為 false(back-compat)。
+        let line = r#"{"id":"s1","session_id":"x","track":"system","source_kind":"meeting_system","visibility":"public","start_ms":0,"end_ms":1000,"text":"hi","is_final":true}"#;
+        let s: Segment = serde_json::from_str(line).unwrap();
+        assert!(!s.supplement, "supplement should default to false for old jsonl without the field");
     }
 }
