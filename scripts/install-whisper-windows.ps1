@@ -58,6 +58,19 @@ if ($sanity -match "0xc000007b|cannot proceed|was not found|無法啟動|找不�
 }
 Write-Host "✓ whisper-cli.exe loads OK"
 
+# 檔案轉錄(Files 分頁)用 ffmpeg 把任意音/影格式抽成 16kHz WAV。會議錄音本身不需要 → 裝失敗只警告。
+if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+    Write-Host "✓ ffmpeg already present"
+} else {
+    Write-Host "→ installing ffmpeg (檔案轉錄用;winget)…"
+    try {
+        winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+        Write-Host "✓ ffmpeg installed(可能要開新終端機讓 PATH 生效)"
+    } catch {
+        Write-Host "⚠ ffmpeg 安裝失敗 — 檔案轉錄(Files 分頁)會用不了;請手動裝 ffmpeg 並加進 PATH。"
+    }
+}
+
 # 繁體轉換已內建在 app(ferrous-opencc,bundle OpenCC 官方字典)→ 不需要另外裝 opencc。
 Write-Host "✓ ready: $binDir\whisper-cli.exe + $modelDir\ggml-small.bin"
 Write-Host "  (繁體轉換已內建;large-v3-turbo 模型可在 app 的 Deps 分頁下載)"

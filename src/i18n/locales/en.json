@@ -13,7 +13,23 @@
     "deps": "Deps",
     "live": "Live",
     "people": "People",
+    "files": "Files",
     "settings": "Settings"
+  },
+  "files": {
+    "title": "File Transcribe",
+    "hint": "Turn existing audio / video files into transcripts (local whisper, fully offline). For live meetings use the Record tab.",
+    "dep_ffmpeg": "ffmpeg (audio/video extraction)",
+    "dep_whisper": "whisper-cli",
+    "dep_model": "whisper model",
+    "deps_missing": "Dependencies missing — install ffmpeg / whisper / model from the Deps tab to transcribe.",
+    "pick": "Pick file",
+    "start": "Transcribe",
+    "transcribing": "Transcribing…",
+    "copy": "Copy",
+    "copied": "Copied",
+    "save_txt": "Save .txt",
+    "saved": "Saved to {{path}}"
   },
   "record": {
     "start_button": "Start recording",

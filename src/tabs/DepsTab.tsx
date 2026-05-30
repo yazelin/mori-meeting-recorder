@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import CopyCodeBlock from "../components/CopyCodeBlock";
 
 type DepsCheck = {
+  ffmpeg_ok: boolean;
   whisper_cli_ok: boolean;
   whisper_cli_path: string;
   model_ok: boolean;
@@ -87,6 +88,7 @@ export default function DepsTab() {
       <p style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 12 }}>{t("deps.hint")}</p>
 
       <div style={{ display: "flex", flexDirection: "column" }}>
+        <DepRow label={t("files.dep_ffmpeg")} ok={deps?.ffmpeg_ok ?? false} path="(system PATH)" t={t} />
         <DepRow label={t("deps.whisper_cli")} ok={deps?.whisper_cli_ok ?? false} path={deps?.whisper_cli_path ?? "—"} t={t} />
         <DepRow label={t("deps.model")} ok={deps?.model_ok ?? false} path={deps?.model_path ?? "—"} t={t} />
       </div>

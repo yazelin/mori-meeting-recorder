@@ -11,10 +11,11 @@ import DepsTab from "./tabs/DepsTab";
 import LiveTab from "./tabs/LiveTab";
 import SettingsTab from "./tabs/SettingsTab";
 import PeopleTab from "./tabs/PeopleTab";
+import FilesTab from "./tabs/FilesTab";
 import SignalPill from "./components/SignalPill";
 import { type LiveSegment } from "./components/LiveColumn";
 
-type Tab = "record" | "live" | "sessions" | "people" | "deps" | "settings";
+type Tab = "record" | "live" | "sessions" | "people" | "files" | "deps" | "settings";
 
 // 同 CapsuleView:imperative startDragging on mousedown,Tauri 2 + Wayland 不能靠 data-tauri-drag-region。
 const startDragOnMouseDown = (e: React.MouseEvent) => {
@@ -106,6 +107,9 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
         <button className={`tab-btn ${tab === "people" ? "active" : ""}`} onClick={() => setTab("people")}>
           {t("tabs.people")}
         </button>
+        <button className={`tab-btn ${tab === "files" ? "active" : ""}`} onClick={() => setTab("files")}>
+          {t("tabs.files")}
+        </button>
         <button className={`tab-btn ${tab === "deps" ? "active" : ""}`} onClick={() => setTab("deps")}>
           {t("tabs.deps")}
         </button>
@@ -132,6 +136,7 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
         {tab === "live" && <LiveTab sys={liveSys} mic={liveMic} />}
         {tab === "sessions" && <SessionsTab />}
         {tab === "people" && <PeopleTab />}
+        {tab === "files" && <FilesTab />}
         {tab === "deps" && <DepsTab />}
         {tab === "settings" && <SettingsTab />}
       </div>

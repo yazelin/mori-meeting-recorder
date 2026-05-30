@@ -20,6 +20,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
+# 檔案轉錄的「選檔」對話框(原生 file picker)。
+tauri-plugin-dialog = "2"
 hound = "3.5"
 # 檔案轉錄:ffmpeg 抽出的 16kHz WAV 寫 temp 檔(drop 自動刪)。
 tempfile = "3"
