@@ -103,7 +103,14 @@
     "reexporting": "Exporting…",
     "reexport_ok": "Export complete",
     "src_system": "System",
-    "src_mic": "Mic"
+    "src_mic": "Mic",
+    "text_edit_hint": "Ctrl/Cmd+Enter to save · Esc to cancel",
+    "text_edit_click_hint": "Click to edit text",
+    "text_edit_save": "Save",
+    "text_edit_cancel": "Cancel",
+    "supplement_label": "Resolution basis",
+    "supplement_toggle": "Resolution basis",
+    "supplement_hint": "Segments marked as 'Resolution basis' are included in the internal.md 'Resolution basis / internal notes' section; they are not included in the client version"
   },
   "people": {
     "title": "People",
