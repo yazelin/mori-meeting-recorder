@@ -37,6 +37,15 @@ fn default_expanded_width() -> u32 {
 fn default_expanded_height() -> u32 {
     620
 }
+fn default_summary_groq_model() -> String {
+    "openai/gpt-oss-120b".to_string()
+}
+fn default_summary_ollama_model() -> String {
+    "qwen3:4b-instruct-2507-q4_K_M".to_string()
+}
+fn default_summary_ollama_base_url() -> String {
+    "http://localhost:11434".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RecorderConfig {
@@ -60,6 +69,15 @@ pub struct RecorderConfig {
     pub expanded_width: u32,
     #[serde(default = "default_expanded_height")]
     pub expanded_height: u32,
+    // ── 摘要 pipeline 偏好(§4.4)。金鑰不在這裡,讀共享 ~/.mori/config.json。 ──
+    #[serde(default = "default_summary_groq_model")]
+    pub summary_groq_model: String,
+    #[serde(default = "default_summary_ollama_model")]
+    pub summary_ollama_model: String,
+    #[serde(default = "default_summary_ollama_base_url")]
+    pub summary_ollama_base_url: String,
+    #[serde(default)]
+    pub summary_force_local_default: bool,
 }
 
 impl Default for RecorderConfig {
@@ -75,6 +93,10 @@ impl Default for RecorderConfig {
             transcribe_engine: default_transcribe_engine(),
             expanded_width: default_expanded_width(),
             expanded_height: default_expanded_height(),
+            summary_groq_model: default_summary_groq_model(),
+            summary_ollama_model: default_summary_ollama_model(),
+            summary_ollama_base_url: default_summary_ollama_base_url(),
+            summary_force_local_default: false,
         }
     }
 }
@@ -145,6 +167,30 @@ mod tests {
     fn empty_json_all_defaults() {
         let c: RecorderConfig = serde_json::from_str("{}").unwrap();
         assert_eq!(c, RecorderConfig::default());
+    }
+
+    #[test]
+    fn summary_fields_default_when_missing() {
+        // §10.4:缺欄 → 各自回 default
+        let json = r#"{"silence_split_ms":600}"#;
+        let c: RecorderConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(c.summary_groq_model, "openai/gpt-oss-120b");
+        assert_eq!(c.summary_ollama_model, "qwen3:4b-instruct-2507-q4_K_M");
+        assert_eq!(c.summary_ollama_base_url, "http://localhost:11434");
+        assert!(!c.summary_force_local_default);
+    }
+
+    #[test]
+    fn summary_fields_round_trip() {
+        // §10.4:serialize → deserialize 還原所有 summary 欄位
+        let mut c = RecorderConfig::default();
+        c.summary_groq_model = "openai/gpt-oss-20b".into();
+        c.summary_ollama_model = "qwen3:8b".into();
+        c.summary_ollama_base_url = "http://127.0.0.1:11434".into();
+        c.summary_force_local_default = true;
+        let s = serde_json::to_string(&c).unwrap();
+        let back: RecorderConfig = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, c);
     }
 
     #[test]

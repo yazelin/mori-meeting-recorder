@@ -8,6 +8,7 @@ pub mod manifest;
 pub mod postprocess;
 pub mod recorder;
 pub mod session_store;
+pub mod summarize;
 pub mod transcribe;
 pub mod voiceprint;
 pub mod whisper_discovery;
@@ -626,6 +627,24 @@ async fn reexport_session(session_id: String) -> Result<(), String> {
     .map_err(|e| format!("join reexport_session: {e}"))?
 }
 
+/// 用目前 jsonl + ~/.mori/config.json provider 設定,生成兩份摘要 .md。
+/// force_local=true → 跳過 Groq,純本機 Ollama。可重跑。
+/// Tauri v2 auto-camelCase → JS forceLocal。
+#[tauri::command]
+async fn summarize_session(
+    session_id: String,
+    force_local: bool,
+) -> Result<summarize::SummaryResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        summarize::summarize_session_inner(
+            &session_store::default_meetings_dir().join(&session_id),
+            force_local,
+        )
+    })
+    .await
+    .map_err(|e| format!("join summarize_session: {e}"))?
+}
+
 // ── C3: 分人修正 command ────────────────────────────────────────────────────────
 
 /// 合併講者:把 merge_ids 的段全改成 keep_id(兩軌)+ 從 speakers.json 移除 merge_ids。
@@ -874,6 +893,7 @@ fn main() {
             read_meeting_info,
             set_meeting_info_for,
             reexport_session,
+            summarize_session,
             // C3: diarization correction commands
             merge_speakers,
             set_segment_speaker,

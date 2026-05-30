@@ -2326,6 +2326,7 @@ dependencies = [
  "libc",
  "libpulse-binding",
  "libpulse-simple-binding",
+ "regex",
  "serde",
  "serde_json",
  "sherpa-onnx",

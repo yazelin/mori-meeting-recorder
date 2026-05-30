@@ -28,6 +28,11 @@ impl SessionStore {
     pub fn public_md_path(&self) -> PathBuf { self.root.join("meeting.public.md") }
     pub fn internal_md_path(&self) -> PathBuf { self.root.join("meeting.internal.md") }
     pub fn timeline_path(&self) -> PathBuf { self.root.join("timeline.json") }
+
+    // ── 摘要產物(§4.3):跟逐字稿匯出檔並列,一眼可分。 ──
+    pub fn summary_public_md_path(&self) -> PathBuf { self.root.join("meeting.summary.public.md") }
+    pub fn summary_internal_md_path(&self) -> PathBuf { self.root.join("meeting.summary.internal.md") }
+    pub fn summary_audit_path(&self) -> PathBuf { self.root.join("summary.audit.jsonl") }
 }
 
 /// 預設 base dir = `~/.mori/meetings/`。
