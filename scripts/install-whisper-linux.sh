@@ -100,6 +100,19 @@ else
   echo "✓ downloaded: $model_dir/ggml-small.bin"
 fi
 
+# 檔案轉錄(Files 分頁)用 ffmpeg 把任意音/影格式抽成 16kHz WAV。會議錄音/即時轉錄本身
+# 不需要 ffmpeg → 裝失敗只警告不中斷(if 條件下的失敗不觸發 set -e)。
+if command -v ffmpeg >/dev/null 2>&1; then
+  echo "✓ ffmpeg already present: $(command -v ffmpeg)"
+else
+  echo "→ installing ffmpeg (檔案轉錄用)…"
+  if sudo apt-get update -qq && sudo apt-get install -y ffmpeg; then
+    echo "✓ installed ffmpeg"
+  else
+    echo "⚠ ffmpeg 安裝失敗 — 檔案轉錄(Files 分頁)會用不了;之後手動:sudo apt install ffmpeg"
+  fi
+fi
+
 # 繁體轉換已內建在 app(ferrous-opencc,bundle OpenCC 官方字典)→ 不再需要外部 opencc。
 
 # sanity test

@@ -13,7 +13,23 @@
     "deps": "Deps",
     "live": "字幕",
     "people": "人員",
+    "files": "檔案",
     "settings": "設定"
+  },
+  "files": {
+    "title": "檔案轉錄",
+    "hint": "把現成的音檔 / 影片轉成逐字稿(本機 whisper,完全離線)。會議現場錄音請用「錄音」分頁。",
+    "dep_ffmpeg": "ffmpeg(音/影格式抽取)",
+    "dep_whisper": "whisper-cli",
+    "dep_model": "whisper 模型",
+    "deps_missing": "依賴沒齊 — 到 Deps 分頁補上 ffmpeg / whisper / 模型才能轉錄。",
+    "pick": "選檔",
+    "start": "開始轉錄",
+    "transcribing": "轉錄中…",
+    "copy": "複製",
+    "copied": "已複製",
+    "save_txt": "存 .txt",
+    "saved": "已存到 {{path}}"
   },
   "record": {
     "start_button": "開始錄音",
