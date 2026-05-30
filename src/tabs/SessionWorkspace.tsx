@@ -233,13 +233,14 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   };
 
   const setSegmentSpeaker = async (seg: Segment, speakerId: string) => {
-    const key = `${seg.track}-${seg.id}`;
+    // Key by (track, start_ms) — seg.id is NOT unique per track (VAD resets per clip).
+    const key = `${seg.track}-${seg.start_ms}`;
     setSegSaving((prev) => ({ ...prev, [key]: true }));
     try {
       await invoke("set_segment_speaker", {
         sessionId,
         track: seg.track,
-        segId: seg.id,
+        startMs: seg.start_ms,
         speakerId,
       });
       await reloadTranscript();
@@ -251,7 +252,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   };
 
   const saveSegmentText = async (seg: Segment, text: string) => {
-    const key = `${seg.track}-${seg.id}`;
+    const key = `${seg.track}-${seg.start_ms}`;
     // No change — just close editor
     if (text === seg.text) {
       setSegTextEditing((prev) => ({ ...prev, [key]: null }));
@@ -262,7 +263,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
       await invoke("set_segment_text", {
         sessionId,
         track: seg.track,
-        segId: seg.id,
+        startMs: seg.start_ms,
         text,
       });
       await reloadTranscript();
@@ -275,13 +276,13 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   };
 
   const toggleSegmentSupplement = async (seg: Segment) => {
-    const key = `${seg.track}-${seg.id}`;
+    const key = `${seg.track}-${seg.start_ms}`;
     setSegSupplementSaving((prev) => ({ ...prev, [key]: true }));
     try {
       await invoke("set_segment_supplement", {
         sessionId,
         track: seg.track,
-        segId: seg.id,
+        startMs: seg.start_ms,
         supplement: !seg.supplement,
       });
       await reloadTranscript();
@@ -331,7 +332,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   }
 
   return (
-    <div>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: loadErr ? 4 : 14 }}>
         <button className="mmr-btn" onClick={onBack} style={{ flexShrink: 0 }}>
@@ -474,7 +475,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
         </>
       )}
 
-      {/* Transcript section */}
+      {/* Transcript section — flex:1 so it fills remaining height as window grows */}
       <h4>{t("workspace.transcript_title")}</h4>
       {segments.length === 0 ? (
         <p style={{ fontSize: 11, color: "var(--text-dim)" }}>{t("workspace.transcript_empty")}</p>
@@ -485,12 +486,14 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
             borderRadius: 10,
             background: "rgba(255,255,255,0.02)",
             padding: "8px 10px",
-            maxHeight: 280,
+            flex: 1,
+            minHeight: 120,
             overflowY: "auto",
           }}
         >
           {segments.map((seg) => {
-            const segKey = `${seg.track}-${seg.id}`;
+            // Key by (track, start_ms) — seg.id is NOT unique per track (VAD resets per clip).
+            const segKey = `${seg.track}-${seg.start_ms}`;
             const display = seg.speaker ? (speakerDisplay[seg.speaker] ?? seg.speaker) : t("workspace.unknown_speaker");
             const isSpeakerSaving = segSaving[segKey] ?? false;
             const editingText = segTextEditing[segKey] ?? null;
