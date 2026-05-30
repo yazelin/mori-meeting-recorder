@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
+
+// ResizeDirection matches @tauri-apps/api/window internal type (not exported).
+type ResizeDirection = "East" | "North" | "NorthEast" | "NorthWest" | "South" | "SouthEast" | "SouthWest" | "West";
 import RecordTab from "./tabs/RecordTab";
 import SessionsTab from "./tabs/SessionsTab";
 import DepsTab from "./tabs/DepsTab";
@@ -19,6 +22,13 @@ const startDragOnMouseDown = (e: React.MouseEvent) => {
   const target = e.target as HTMLElement;
   if (target.closest("button")) return;
   getCurrentWindow().startDragging().catch(() => {});
+};
+
+// 自繪 resize handle:frameless 視窗沒有 WM resize edges,用 Tauri 2 startResizeDragging 補上。
+const startResizeOnMouseDown = (direction: ResizeDirection) => (e: React.MouseEvent) => {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  getCurrentWindow().startResizeDragging(direction).catch(() => {});
 };
 
 const fmtElapsed = (s: number) => {
@@ -54,7 +64,35 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
   };
 
   return (
-    <div id="view-expanded" style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+    <div id="view-expanded" style={{ height: "100vh", display: "flex", flexDirection: "column", position: "relative" }}>
+      {/* Resize handles — frameless window has no WM edges; Tauri 2 startResizeDragging adds them back */}
+      {/* Right edge (East) */}
+      <div
+        onMouseDown={startResizeOnMouseDown("East")}
+        style={{
+          position: "absolute", top: 0, right: 0, width: 4, bottom: 0,
+          cursor: "ew-resize", zIndex: 100,
+        }}
+      />
+      {/* Bottom edge (South) */}
+      <div
+        onMouseDown={startResizeOnMouseDown("South")}
+        style={{
+          position: "absolute", left: 0, right: 0, bottom: 0, height: 4,
+          cursor: "ns-resize", zIndex: 100,
+        }}
+      />
+      {/* Bottom-right corner (SouthEast) */}
+      <div
+        onMouseDown={startResizeOnMouseDown("SouthEast")}
+        style={{
+          position: "absolute", right: 0, bottom: 0, width: 12, height: 12,
+          cursor: "nwse-resize", zIndex: 101,
+          borderRight: "2px solid var(--border)",
+          borderBottom: "2px solid var(--border)",
+          borderBottomRightRadius: "var(--radius)",
+        }}
+      />
       <div className="expanded-header" onMouseDown={startDragOnMouseDown}>
         <button className={`tab-btn ${tab === "record" ? "active" : ""}`} onClick={() => setTab("record")}>
           {t("tabs.record")}
