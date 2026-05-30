@@ -650,10 +650,8 @@ async fn summarize_session(
 /// Tauri v2 auto-camelCase → JS sessionId / kind。
 #[tauri::command]
 fn read_summary_md(session_id: String, kind: String) -> Option<String> {
-    let store = session_store::SessionStore {
-        session_id: session_id.clone(),
-        root: session_store::default_meetings_dir().join(&session_id),
-    };
+    let store =
+        session_store::SessionStore::from_root(session_store::default_meetings_dir().join(&session_id));
     let path = match kind.as_str() {
         "public" => store.summary_public_md_path(),
         "internal" => store.summary_internal_md_path(),

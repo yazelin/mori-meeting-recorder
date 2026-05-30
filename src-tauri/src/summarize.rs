@@ -62,15 +62,36 @@ impl std::fmt::Display for SumError {
     }
 }
 
+/// 一次 HTTP 回應的最小切片(sync)。保留 response header,讓 429 的
+/// `Retry-After` header 讀得到(只回 (status, body) 會把 header 丟掉 → spec §5.2
+/// 「Retry-After header 解析出的等待 > 60s 立刻退本機」就永遠走不到)。
+pub struct HttpResponse {
+    pub status: u16,
+    pub body: String,
+    /// 已 lowercase 的 header 名 → 值(只收我們會用到的;ureq header 名大小寫不敏感)。
+    pub headers: Vec<(String, String)>,
+}
+
+impl HttpResponse {
+    /// 依 header 名(大小寫不敏感)取值。
+    fn header(&self, name: &str) -> Option<&str> {
+        let lname = name.to_ascii_lowercase();
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(&lname))
+            .map(|(_, v)| v.as_str())
+    }
+}
+
 /// HTTP 抽象(sync)。production 用 ureq、測試用 FakeTransport 注入 response。
 pub trait HttpTransport: Send + Sync {
-    /// 回 (status, body)。傳輸層失敗(斷網 / DNS / TLS)→ Err。
+    /// 回 HttpResponse(status + body + headers)。傳輸層失敗(斷網 / DNS / TLS)→ Err。
     fn post_json(
         &self,
         url: &str,
         headers: &[(&str, &str)],
         body: &str,
-    ) -> Result<(u16, String), SumError>;
+    ) -> Result<HttpResponse, SumError>;
 }
 
 /// backend 抽象(sync)。藏在 trait 後 → 將來可換成 AgentOS HTTP service client。
@@ -80,7 +101,7 @@ pub trait Summarizer: Send + Sync {
     fn complete(&self, messages: &[SumMessage]) -> Result<String, SumError>;
 }
 
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct SummaryResult {
     pub public_backend: String,   // "groq" / "ollama"(public 那遍實際用的)
     pub internal_backend: String, // "groq" / "ollama"(internal 那遍實際用的)
@@ -103,13 +124,24 @@ impl UreqTransport {
     }
 }
 
+impl UreqTransport {
+    /// 從 ureq response 抓我們會用到的 header(只收 retry-after;ureq header 名大小寫不敏感)。
+    fn collect_headers(resp: &ureq::Response) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        if let Some(v) = resp.header("retry-after") {
+            out.push(("retry-after".to_string(), v.to_string()));
+        }
+        out
+    }
+}
+
 impl HttpTransport for UreqTransport {
     fn post_json(
         &self,
         url: &str,
         headers: &[(&str, &str)],
         body: &str,
-    ) -> Result<(u16, String), SumError> {
+    ) -> Result<HttpResponse, SumError> {
         let mut req = self.agent.post(url).set("Content-Type", "application/json");
         for (k, v) in headers {
             req = req.set(k, v);
@@ -117,15 +149,17 @@ impl HttpTransport for UreqTransport {
         match req.send_string(body) {
             Ok(resp) => {
                 let status = resp.status();
+                let hdrs = Self::collect_headers(&resp);
                 let text = resp
                     .into_string()
                     .map_err(|e| SumError::Backend(format!("read body: {e}")))?;
-                Ok((status, text))
+                Ok(HttpResponse { status, body: text, headers: hdrs })
             }
             // ureq 把 4xx/5xx 當 Err(Status);其餘是 transport error。
             Err(ureq::Error::Status(code, resp)) => {
+                let hdrs = Self::collect_headers(&resp);
                 let text = resp.into_string().unwrap_or_default();
-                Ok((code, text))
+                Ok(HttpResponse { status: code, body: text, headers: hdrs })
             }
             Err(ureq::Error::Transport(t)) => {
                 Err(SumError::Backend(format!("transport: {t}")))
@@ -183,25 +217,36 @@ impl Summarizer for GroqSummarizer {
         // Retry loop:429 / 5xx 鏡射 groq.rs。429 等待 > 60s → 直接退(回 Err)。
         for attempt in 1..=MAX_ATTEMPTS {
             let headers = [("Authorization", bearer.as_str())];
-            let (status, resp_body) = self.transport.post_json(&url, &headers, &body)?;
+            let resp = self.transport.post_json(&url, &headers, &body)?;
+            let status = resp.status;
             if (200..300).contains(&status) {
-                return parse_openai_content(&resp_body);
+                return parse_openai_content(&resp.body);
             }
             let retriable = status == 429 || (500..600).contains(&status);
             if !retriable || attempt == MAX_ATTEMPTS {
                 return Err(SumError::Backend(format!(
-                    "groq chat: HTTP {status}: {resp_body}"
+                    "groq chat: HTTP {status}: {}",
+                    resp.body
                 )));
             }
             // 429:等待 > 60s 不自動重試,直接退本機。
             if status == 429 {
-                let wait = parse_retry_after_body(&resp_body).unwrap_or(BACKOFF_SECS[attempt - 1]);
+                // 鏡射 groq.rs::decide_retry 的來源順序:body 的「try again in Xs」
+                // 優先,其次 Retry-After header,最後 fallback backoff(groq.rs:177-179)。
+                // header-first-over-fallback 是關鍵:Groq 常把秒數放 Retry-After header
+                // 而 body 只有一般訊息,只解析 body 會漏掉 header 指示的 >60s 而錯誤重試。
+                let header_secs = resp.header("retry-after").and_then(parse_retry_after_value);
+                let wait = parse_retry_after_body(&resp.body)
+                    .or(header_secs)
+                    .unwrap_or(BACKOFF_SECS[attempt - 1]);
                 if wait > MAX_AUTOMATIC_RETRY_SECS {
                     return Err(SumError::Backend(format!(
                         "groq chat: rate limited, retry in {wait}s (> {MAX_AUTOMATIC_RETRY_SECS}s) — fall back local"
                     )));
                 }
                 // ≤ 60s:在 spawn_blocking thread 內 sleep backoff 再重試。
+                // `+ 1`:鏡射 groq.rs:184 的 `(base + 1).clamp(...)` —— server 回的等待秒數
+                // 可能因時間漂移 / 向下捨入而略短,加 1s safety buffer 避免醒太早又被打回。
                 std::thread::sleep(Duration::from_secs((wait + 1).clamp(1, MAX_AUTOMATIC_RETRY_SECS)));
                 continue;
             }
@@ -266,6 +311,11 @@ fn parse_retry_after_body(body: &str) -> Option<u64> {
     Some(total.ceil() as u64)
 }
 
+/// 解析 `Retry-After` header 值(整數秒)。鏡射 groq.rs:102-107 parse_retry_after_header。
+fn parse_retry_after_value(v: &str) -> Option<u64> {
+    v.trim().parse::<u64>().ok()
+}
+
 // ── Ollama backend(原生 /api/chat,帶 options.num_ctx)──────────────────────
 
 pub struct OllamaSummarizer {
@@ -320,8 +370,18 @@ impl Summarizer for OllamaSummarizer {
         })
         .to_string();
 
-        let (status, resp_body) = self.transport.post_json(&url, &[], &body)?;
+        let resp = self.transport.post_json(&url, &[], &body)?;
+        let status = resp.status;
+        let resp_body = resp.body;
         if !(200..300).contains(&status) {
+            // 缺模型:Ollama /api/chat 對沒拉的模型回 404 + body 含 "model ... not found"
+            // (spec §9 錯誤表:把模型名帶進訊息,提示 `ollama pull`)。鏡射 ollama.rs:184。
+            if status == 404 || resp_body.to_lowercase().contains("not found") {
+                return Err(SumError::Config(format!(
+                    "本機缺少模型 {model},請先 `ollama pull {model}`",
+                    model = self.model
+                )));
+            }
             return Err(SumError::Backend(format!(
                 "ollama chat: HTTP {status}: {resp_body}"
             )));
@@ -619,71 +679,106 @@ fn build_chain(
 
 // ── 主流程(鏡射 postprocess::reexport_session 的讀→處理→原子寫檔)────────────
 
-/// 主流程(sync)。讀 segments → visibility 切兩路 → redact(在 prompt builder 內)
-/// → fallback chain → 原子寫兩份 .md → append audit。
+/// 主流程(sync)。讀 segments → 組 chain → run_summary_pipeline(寫檔 + audit)。
+/// chain 組裝(讀 config / 解析 key / 估 num_ctx)留在這層;真正的編排核心(部分成功
+/// 四臂 / 寫檔 / audit)抽到 run_summary_pipeline,讓測試能注入 fake chain 跑真路徑。
 pub fn summarize_session_inner(
     session_root: &Path,
     force_local: bool,
 ) -> Result<SummaryResult, String> {
     let segments = crate::postprocess::read_session_segments(session_root);
     let cfg = crate::config::read_config();
+    // SessionStore 是檔名單一事實來源(spec §4.3):writer / reader 都走它,不各抄一份。
+    let store = crate::session_store::SessionStore::from_root(session_root.to_path_buf());
+
+    // 逐字稿空 → 不呼叫 LLM,寫佔位內容(§9 錯誤表)。
+    if segments.is_empty() {
+        return write_empty_placeholder(&store, force_local);
+    }
+
     let groq_key_owned = if force_local {
         None
     } else {
         mori_config_path().and_then(|p| resolve_groq_api_key(&p))
     };
-
-    // 逐字稿空 → 不呼叫 LLM,寫佔位內容(§9 錯誤表)。
-    if segments.is_empty() {
-        let placeholder = "(無逐字稿內容)\n";
-        atomic_write(&summary_public_path(session_root), placeholder)?;
-        atomic_write(&summary_internal_path(session_root), placeholder)?;
-        append_audit(session_root, force_local, "none", "none", 0, placeholder.len(), placeholder.len());
-        return Ok(SummaryResult {
-            public_backend: "none".to_string(),
-            internal_backend: "none".to_string(),
-            public_chars: placeholder.len(),
-            internal_chars: placeholder.len(),
-            redaction_count: 0,
-        });
-    }
+    let groq_key_ref = groq_key_owned.as_deref();
 
     // num_ctx 依「全段」估算(internal 餵最多 → 用它定 num_ctx,public 同 ctx 安全)。
     let (internal_transcript_for_est, _) = build_internal_transcript(&segments);
     let est = estimate_gpt_oss_tokens(&internal_transcript_for_est) + 2_000; // prompt overhead
     let num_ctx = pick_num_ctx(est);
 
-    let groq_key_ref = groq_key_owned.as_deref();
+    let mk_chain = |force_local: bool| {
+        build_chain(
+            force_local,
+            groq_key_ref,
+            &cfg.summary_groq_model,
+            &cfg.summary_ollama_base_url,
+            &cfg.summary_ollama_model,
+            num_ctx,
+        )
+    };
+    let public_chain = mk_chain(force_local);
+    let internal_chain = mk_chain(force_local);
 
+    run_summary_pipeline(&store, force_local, &segments, &public_chain, &internal_chain)
+}
+
+/// 逐字稿空時的佔位:**只在目標 .md 不存在時才寫**(issue:一次偶發空讀不該抹掉
+/// 使用者已生成的好摘要)。char 計數用 chars().count() 與成功路徑單位一致。
+fn write_empty_placeholder(
+    store: &crate::session_store::SessionStore,
+    force_local: bool,
+) -> Result<SummaryResult, String> {
+    let placeholder = "(無逐字稿內容)\n";
+    let chars = placeholder.chars().count();
+    let pub_path = store.summary_public_md_path();
+    let int_path = store.summary_internal_md_path();
+    if !pub_path.exists() {
+        atomic_write(&pub_path, placeholder)?;
+    }
+    if !int_path.exists() {
+        atomic_write(&int_path, placeholder)?;
+    }
+    append_audit(store, force_local, "none", "none", 0, chars, chars);
+    Ok(SummaryResult {
+        public_backend: "none".to_string(),
+        internal_backend: "none".to_string(),
+        public_chars: chars,
+        internal_chars: chars,
+        redaction_count: 0,
+    })
+}
+
+/// 編排核心(可注入 chain → 端到端測試跑真路徑)。給定 segments + 已組好的兩條
+/// fallback chain:組 prompt → 各自跑 fallback → 原子寫成功那遍的 .md(失敗不覆寫
+/// 舊檔)→ append 一筆 audit → 依四臂回 Ok / Err。
+fn run_summary_pipeline(
+    store: &crate::session_store::SessionStore,
+    force_local: bool,
+    segments: &[Segment],
+    public_chain: &[Box<dyn Summarizer>],
+    internal_chain: &[Box<dyn Summarizer>],
+) -> Result<SummaryResult, String> {
     // ── public 那遍 ──
-    let (public_msgs, public_redactions) = build_public_prompt(&segments);
-    let public_chain = build_chain(
-        force_local,
-        groq_key_ref,
-        &cfg.summary_groq_model,
-        &cfg.summary_ollama_base_url,
-        &cfg.summary_ollama_model,
-        num_ctx,
-    );
-    let public_res = summarize_with_fallback(&public_chain, &public_msgs, |failed, next, err| {
-        eprintln!(
-            "summarize public: backend '{failed}' failed ({err}); next = {}",
-            next.unwrap_or("(none)")
-        );
-    });
+    let (public_msgs, public_redactions) = build_public_prompt(segments);
+    // public 段全空(整場只有麥克風軌)→ 不送 LLM,寫佔位、backend 記 none(§9 概念延伸)。
+    let public_empty = build_public_transcript(segments).0.trim().is_empty();
+    let public_res: Result<(String, &'static str), SumError> = if public_empty {
+        Ok(("(無系統軌逐字稿內容)\n".to_string(), "none"))
+    } else {
+        summarize_with_fallback(public_chain, &public_msgs, |failed, next, err| {
+            eprintln!(
+                "summarize public: backend '{failed}' failed ({err}); next = {}",
+                next.unwrap_or("(none)")
+            );
+        })
+    };
 
     // ── internal 那遍 ──
-    let (internal_msgs, internal_redactions) = build_internal_prompt(&segments);
-    let internal_chain = build_chain(
-        force_local,
-        groq_key_ref,
-        &cfg.summary_groq_model,
-        &cfg.summary_ollama_base_url,
-        &cfg.summary_ollama_model,
-        num_ctx,
-    );
+    let (internal_msgs, internal_redactions) = build_internal_prompt(segments);
     let internal_res =
-        summarize_with_fallback(&internal_chain, &internal_msgs, |failed, next, err| {
+        summarize_with_fallback(internal_chain, &internal_msgs, |failed, next, err| {
             eprintln!(
                 "summarize internal: backend '{failed}' failed ({err}); next = {}",
                 next.unwrap_or("(none)")
@@ -693,37 +788,24 @@ pub fn summarize_session_inner(
     let redaction_count = public_redactions + internal_redactions;
 
     // 各遍成功才覆寫自己的 .md(原子寫,沿用 reexport)。失敗那遍不覆寫舊檔。
-    let public_outcome = match &public_res {
+    // outcome 拆 backend(&str)/ chars(usize, Copy)兩個 binding,不對 Option 整體 clone。
+    let (pub_b, pub_c): (&str, usize) = match &public_res {
         Ok((text, backend)) => {
-            atomic_write(&summary_public_path(session_root), text)?;
-            Some((backend.to_string(), text.chars().count()))
+            atomic_write(&store.summary_public_md_path(), text)?;
+            (backend, text.chars().count())
         }
-        Err(_) => None,
+        Err(_) => ("(failed)", 0),
     };
-    let internal_outcome = match &internal_res {
+    let (int_b, int_c): (&str, usize) = match &internal_res {
         Ok((text, backend)) => {
-            atomic_write(&summary_internal_path(session_root), text)?;
-            Some((backend.to_string(), text.chars().count()))
+            atomic_write(&store.summary_internal_md_path(), text)?;
+            (backend, text.chars().count())
         }
-        Err(_) => None,
+        Err(_) => ("(failed)", 0),
     };
 
     // audit:成功 / 部分成功都記一筆(§9.5)。
-    let (pub_b, pub_c) = public_outcome
-        .clone()
-        .unwrap_or_else(|| ("(failed)".to_string(), 0));
-    let (int_b, int_c) = internal_outcome
-        .clone()
-        .unwrap_or_else(|| ("(failed)".to_string(), 0));
-    append_audit(
-        session_root,
-        force_local,
-        &pub_b,
-        &int_b,
-        redaction_count,
-        pub_c,
-        int_c,
-    );
+    append_audit(store, force_local, pub_b, int_b, redaction_count, pub_c, int_c);
 
     // 兩遍都成功 → Ok;任一遍失敗 → Err(已寫的檔保留)。
     match (public_res, internal_res) {
@@ -742,16 +824,6 @@ pub fn summarize_session_inner(
     }
 }
 
-fn summary_public_path(root: &Path) -> PathBuf {
-    root.join("meeting.summary.public.md")
-}
-fn summary_internal_path(root: &Path) -> PathBuf {
-    root.join("meeting.summary.internal.md")
-}
-fn summary_audit_path(root: &Path) -> PathBuf {
-    root.join("summary.audit.jsonl")
-}
-
 /// 原子寫檔(沿用 reexport 的 write;tmp + rename 保證 reader 不讀到半截)。
 fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
@@ -763,9 +835,10 @@ fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
 }
 
 /// append 一行 audit JSON(§9.5)。**不存逐字稿原文 / 被遮字串**。失敗只 warning。
+/// audit 路徑走 SessionStore(檔名單一事實來源,spec §4.3)。
 #[allow(clippy::too_many_arguments)]
 fn append_audit(
-    session_root: &Path,
+    store: &crate::session_store::SessionStore,
     force_local: bool,
     public_backend: &str,
     internal_backend: &str,
@@ -783,7 +856,7 @@ fn append_audit(
         "public_chars": public_chars,
         "internal_chars": internal_chars,
     });
-    let path = summary_audit_path(session_root);
+    let path = store.summary_audit_path();
     let line = match serde_json::to_string(&entry) {
         Ok(s) => s,
         Err(e) => {
@@ -1067,15 +1140,27 @@ mod tests {
     struct FakeTransport {
         status: u16,
         body: String,
+        headers: Vec<(String, String)>,
     }
     impl FakeTransport {
         fn new(status: u16, body: &str) -> Self {
-            Self { status, body: body.to_string() }
+            Self { status, body: body.to_string(), headers: Vec::new() }
+        }
+        fn with_header(status: u16, body: &str, name: &str, value: &str) -> Self {
+            Self {
+                status,
+                body: body.to_string(),
+                headers: vec![(name.to_string(), value.to_string())],
+            }
         }
     }
     impl HttpTransport for FakeTransport {
-        fn post_json(&self, _url: &str, _headers: &[(&str, &str)], _body: &str) -> Result<(u16, String), SumError> {
-            Ok((self.status, self.body.clone()))
+        fn post_json(&self, _url: &str, _headers: &[(&str, &str)], _body: &str) -> Result<HttpResponse, SumError> {
+            Ok(HttpResponse {
+                status: self.status,
+                body: self.body.clone(),
+                headers: self.headers.clone(),
+            })
         }
     }
 
@@ -1124,6 +1209,29 @@ mod tests {
     }
 
     #[test]
+    fn groq_429_retry_after_header_long_wait_falls_back_no_retry() {
+        // body 沒有「try again in」字串 → 只能靠 Retry-After header 判等待。
+        // header 120s > 60s → 立刻 Err、不 sleep retry(若 header 被丟掉會錯誤
+        // 退回 backoff ≤16s 而自動重試 5 次)。
+        let fake = FakeTransport::with_header(
+            429,
+            r#"{"error":{"message":"Rate limit reached for model."}}"#,
+            "Retry-After",
+            "120",
+        );
+        let g = GroqSummarizer::new("gsk_x".into(), "m".into(), Box::new(fake));
+        let start = std::time::Instant::now();
+        let res = g.complete(&[SumMessage { role: "user", content: "x".into() }]);
+        assert!(res.is_err(), "429 + Retry-After:120 header should be Err");
+        assert!(
+            format!("{}", res.unwrap_err()).contains("120"),
+            "error should mention the 120s wait from the header"
+        );
+        // 沒 sleep 任何 backoff(立刻退,< 1s)。
+        assert!(start.elapsed().as_secs() < 1, "must not sleep/retry on >60s header");
+    }
+
+    #[test]
     fn ollama_hits_api_chat_with_num_ctx_and_parses_message_content() {
         let fake = FakeTransport::new(
             200,
@@ -1139,6 +1247,30 @@ mod tests {
         assert_eq!(out, "本機整理結果");
     }
 
+    #[test]
+    fn ollama_model_not_found_mentions_model_name() {
+        // Ollama /api/chat 對沒拉的模型回 404 + body 含 "model ... not found"。
+        // 錯誤訊息要帶模型名 + 提示 `ollama pull`(spec §9 錯誤表)。
+        let fake = FakeTransport::new(
+            404,
+            r#"{"error":"model \"qwen3:4b-instruct-2507-q4_K_M\" not found, try pulling it first"}"#,
+        );
+        let model = "qwen3:4b-instruct-2507-q4_K_M";
+        let o = OllamaSummarizer::new(
+            "http://localhost:11434".into(),
+            model.into(),
+            16384,
+            Box::new(fake),
+        );
+        let err = o
+            .complete(&[SumMessage { role: "user", content: "x".into() }])
+            .unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains(model), "error must carry the model name, got: {msg}");
+        assert!(msg.contains("ollama pull"), "error must hint `ollama pull`, got: {msg}");
+        assert!(matches!(err, SumError::Config(_)), "model-not-found is a Config error");
+    }
+
     // 用一個能 inspect 的 transport 驗 url + body
     struct CapturingTransport {
         captured: std::sync::Arc<Mutex<Vec<(String, String)>>>,
@@ -1146,9 +1278,13 @@ mod tests {
         body: String,
     }
     impl HttpTransport for CapturingTransport {
-        fn post_json(&self, url: &str, _headers: &[(&str, &str)], body: &str) -> Result<(u16, String), SumError> {
+        fn post_json(&self, url: &str, _headers: &[(&str, &str)], body: &str) -> Result<HttpResponse, SumError> {
             self.captured.lock().unwrap().push((url.to_string(), body.to_string()));
-            Ok((self.status, self.body.clone()))
+            Ok(HttpResponse {
+                status: self.status,
+                body: self.body.clone(),
+                headers: Vec::new(),
+            })
         }
     }
 
@@ -1176,15 +1312,26 @@ mod tests {
         assert_eq!(v.pointer("/stream").and_then(|x| x.as_bool()), Some(false));
     }
 
-    // ── 10.2 端到端(fake transport,經 chain 注入) ──
-    // 端到端用真實 summarize_session_inner 會 hit production transport(連真網路)。
-    // 為純測試,直接組裝 fake chain 跑 prompt builder + 寫檔 + audit 的等價流程。
+    // ── 端到端:跑真正的 run_summary_pipeline(注入 fake chain,不碰 production transport) ──
+    // 從 SessionStore 取路徑(writer/reader 同一份檔名定義)。
+    fn store_at(root: &Path) -> crate::session_store::SessionStore {
+        crate::session_store::SessionStore::from_root(root.to_path_buf())
+    }
+
+    /// 把 ok-with-reply 的單 backend chain 包成 helper(模擬退到本機後成功)。
+    fn ok_chain(reply: &str) -> Vec<Box<dyn Summarizer>> {
+        vec![Box::new(FakeBackend { name: "ollama", ok: true, reply: reply.to_string() })]
+    }
+    /// 全失敗的單 backend chain(模擬本機也掛)。
+    fn fail_chain() -> Vec<Box<dyn Summarizer>> {
+        vec![Box::new(FakeBackend { name: "ollama", ok: false, reply: String::new() })]
+    }
+
     #[test]
     fn end_to_end_writes_two_md_public_no_mic_redaction_audit() {
         let dir = tempfile::TempDir::new().unwrap();
         let root = dir.path();
-        let transcript_dir = root.join("transcript");
-        std::fs::create_dir_all(&transcript_dir).unwrap();
+        let store = store_at(root);
 
         // 一場含 secret 的 transcript(系統軌 + 麥克風軌)
         let sys = seg(
@@ -1203,58 +1350,126 @@ mod tests {
             "私下講:這客戶很機車這是麥克風內容",
             true,
         );
-        crate::transcribe::write_segments_jsonl(
-            &transcript_dir.join("system.segments.jsonl"),
-            &[sys],
+        let segments = vec![sys, mic];
+
+        // 跑真正的 run_summary_pipeline(兩遍都成功),注入 fake chain。
+        let res = run_summary_pipeline(
+            &store,
+            true,
+            &segments,
+            &ok_chain("客戶版摘要本體"),
+            &ok_chain("內部版摘要本體"),
         )
         .unwrap();
-        crate::transcribe::write_segments_jsonl(
-            &transcript_dir.join("mic-internal.segments.jsonl"),
-            &[mic],
-        )
-        .unwrap();
+        assert!(res.redaction_count > 0, "secret should have been redacted");
+        assert_eq!(res.public_backend, "ollama");
+        assert_eq!(res.internal_backend, "ollama");
 
-        // 用 fake chain 跑「summarize_session_inner 的等價骨架」(避開 production transport)。
-        let segments = crate::postprocess::read_session_segments(root);
-        let (public_msgs, pub_red) = build_public_prompt(&segments);
-        let (internal_msgs, int_red) = build_internal_prompt(&segments);
-        let redaction_count = pub_red + int_red;
-        assert!(redaction_count > 0, "secret should have been redacted");
-
-        let fake_chain = |reply: &str| -> Vec<Box<dyn Summarizer>> {
-            vec![Box::new(FakeBackend { name: "ollama", ok: true, reply: reply.to_string() })]
-        };
-        let (pub_text, pub_b) =
-            summarize_with_fallback(&fake_chain("客戶版摘要本體"), &public_msgs, |_, _, _| {}).unwrap();
-        let (int_text, int_b) =
-            summarize_with_fallback(&fake_chain("內部版摘要本體"), &internal_msgs, |_, _, _| {}).unwrap();
-
-        atomic_write(&summary_public_path(root), &pub_text).unwrap();
-        atomic_write(&summary_internal_path(root), &int_text).unwrap();
-        append_audit(root, true, pub_b, int_b, redaction_count, pub_text.chars().count(), int_text.chars().count());
-
-        // 兩份 .md 寫出
-        let pub_md = std::fs::read_to_string(summary_public_path(root)).unwrap();
-        let int_md = std::fs::read_to_string(summary_internal_path(root)).unwrap();
+        // 兩份 .md 寫出(路徑經 SessionStore)
+        let pub_md = std::fs::read_to_string(store.summary_public_md_path()).unwrap();
+        let int_md = std::fs::read_to_string(store.summary_internal_md_path()).unwrap();
         assert_eq!(pub_md, "客戶版摘要本體");
         assert_eq!(int_md, "內部版摘要本體");
 
-        // public prompt 不含麥克風內容(守門)
+        // public prompt 不含麥克風內容(守門);secret 不原文出現(已 redact)
+        let (public_msgs, _) = build_public_prompt(&segments);
         assert!(!public_msgs[1].content.contains("這是麥克風內容"));
-        // 而且 secret 不會原文出現在 public prompt(已 redact)
         assert!(!public_msgs[1].content.contains("gsk_TEST"));
 
         // audit jsonl 一行 + 不含逐字稿原文 / 被遮字串
-        let audit = std::fs::read_to_string(summary_audit_path(root)).unwrap();
+        let audit = std::fs::read_to_string(store.summary_audit_path()).unwrap();
         let lines: Vec<&str> = audit.lines().filter(|l| !l.trim().is_empty()).collect();
         assert_eq!(lines.len(), 1, "audit should have exactly 1 line");
         assert!(!audit.contains("gsk_TEST"), "audit must not contain redacted secret");
         assert!(!audit.contains("這是麥克風內容"), "audit must not contain transcript text");
         assert!(!audit.contains("客戶版摘要本體"), "audit must not contain summary body");
         let v: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-        assert_eq!(v.get("redaction_count").and_then(|x| x.as_u64()), Some(redaction_count as u64));
+        assert_eq!(v.get("redaction_count").and_then(|x| x.as_u64()), Some(res.redaction_count as u64));
         assert!(v.get("ts").is_some());
         assert_eq!(v.get("force_local").and_then(|x| x.as_bool()), Some(true));
+    }
+
+    // ── 部分成功:public 成功、internal 失敗 → Err、public.md 已寫、internal.md 不被覆寫 ──
+    #[test]
+    fn partial_success_public_ok_internal_fail_keeps_old_internal_and_errors() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let store = store_at(root);
+        // 先放一份舊的好 internal 摘要 → internal 那遍失敗時不該被覆寫。
+        std::fs::create_dir_all(root).unwrap();
+        std::fs::write(store.summary_internal_md_path(), "舊的好內部摘要").unwrap();
+
+        let segments = mixed_segments();
+        let err = run_summary_pipeline(
+            &store,
+            false,
+            &segments,
+            &ok_chain("新客戶版"),
+            &fail_chain(),
+        )
+        .unwrap_err();
+        assert!(err.contains("內部版摘要失敗"), "err should name internal failure: {err}");
+
+        // public.md 已寫成功;internal.md 維持舊內容(不被失敗那遍覆寫)。
+        let pub_md = std::fs::read_to_string(store.summary_public_md_path()).unwrap();
+        assert_eq!(pub_md, "新客戶版");
+        let int_md = std::fs::read_to_string(store.summary_internal_md_path()).unwrap();
+        assert_eq!(int_md, "舊的好內部摘要", "failed internal pass must not overwrite old file");
+
+        // audit 仍 append 一行,internal_backend = "(failed)"。
+        let audit = std::fs::read_to_string(store.summary_audit_path()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(audit.lines().next().unwrap()).unwrap();
+        assert_eq!(v.get("internal_backend").and_then(|x| x.as_str()), Some("(failed)"));
+        assert_eq!(v.get("public_backend").and_then(|x| x.as_str()), Some("ollama"));
+    }
+
+    // ── 兩遍都失敗 → Err 含「雲端與本機都無法處理」、舊檔不被覆寫 ──
+    #[test]
+    fn both_passes_fail_merges_into_single_error() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let store = store_at(root);
+        let segments = mixed_segments();
+        let err = run_summary_pipeline(
+            &store,
+            true,
+            &segments,
+            &fail_chain(),
+            &fail_chain(),
+        )
+        .unwrap_err();
+        assert!(err.contains("雲端與本機都無法處理"), "both-fail err: {err}");
+        // 沒寫任何 .md
+        assert!(!store.summary_public_md_path().exists());
+        assert!(!store.summary_internal_md_path().exists());
+        // audit 仍記一筆(兩 backend 都 "(failed)")
+        let audit = std::fs::read_to_string(store.summary_audit_path()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(audit.lines().next().unwrap()).unwrap();
+        assert_eq!(v.get("public_backend").and_then(|x| x.as_str()), Some("(failed)"));
+        assert_eq!(v.get("internal_backend").and_then(|x| x.as_str()), Some("(failed)"));
+    }
+
+    // ── public 段全空(整場只有麥克風軌)→ public 不送 LLM、寫佔位、backend=none ──
+    #[test]
+    fn public_segments_empty_writes_placeholder_no_llm_for_public() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let store = store_at(root);
+        // 整場只有麥克風軌(internal),public 段為零。
+        let segments = vec![seg("mic-internal", "mic_internal", "internal", 1000, "只有私聊內容", false)];
+        // public chain 用 fail_chain:若 public 真的送了 LLM 會失敗 → 整體 Err;
+        // 但 public 段空應走佔位捷徑、不碰 chain → public 成功(none)。
+        let res = run_summary_pipeline(
+            &store,
+            true,
+            &segments,
+            &fail_chain(),
+            &ok_chain("內部版摘要本體"),
+        )
+        .unwrap();
+        assert_eq!(res.public_backend, "none", "empty public must not hit LLM");
+        let pub_md = std::fs::read_to_string(store.summary_public_md_path()).unwrap();
+        assert!(pub_md.contains("(無系統軌逐字稿內容)"));
     }
 
     // ── 主流程:逐字稿空 → 寫佔位、不呼叫 LLM ──
@@ -1262,12 +1477,37 @@ mod tests {
     fn empty_transcript_writes_placeholder_no_llm() {
         let dir = tempfile::TempDir::new().unwrap();
         let root = dir.path();
+        let store = store_at(root);
         std::fs::create_dir_all(root.join("transcript")).unwrap();
         // force_local=true 但 segments 空 → 不會 hit Ollama
         let res = summarize_session_inner(root, true).unwrap();
         assert_eq!(res.public_backend, "none");
         assert_eq!(res.internal_backend, "none");
-        let pub_md = std::fs::read_to_string(summary_public_path(root)).unwrap();
+        // 佔位 char 計數用 chars().count() 與成功路徑一致(不是 bytes)。
+        assert_eq!(res.public_chars, "(無逐字稿內容)\n".chars().count());
+        let pub_md = std::fs::read_to_string(store.summary_public_md_path()).unwrap();
         assert!(pub_md.contains("(無逐字稿內容)"));
+    }
+
+    // ── 空逐字稿偶發空讀不該抹掉既有好摘要(issue:保守不覆寫) ──
+    #[test]
+    fn empty_transcript_does_not_overwrite_existing_summary() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let store = store_at(root);
+        std::fs::create_dir_all(root.join("transcript")).unwrap();
+        // 先前已成功生成的好摘要
+        std::fs::write(store.summary_public_md_path(), "之前生成的好客戶版摘要").unwrap();
+        std::fs::write(store.summary_internal_md_path(), "之前生成的好內部版摘要").unwrap();
+        // segments 暫時空(例如 jsonl 被外部移動)→ 不該覆寫成佔位。
+        summarize_session_inner(root, true).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(store.summary_public_md_path()).unwrap(),
+            "之前生成的好客戶版摘要"
+        );
+        assert_eq!(
+            std::fs::read_to_string(store.summary_internal_md_path()).unwrap(),
+            "之前生成的好內部版摘要"
+        );
     }
 }
