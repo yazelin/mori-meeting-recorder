@@ -154,4 +154,20 @@ mod tests {
         assert!(r.is_err());
         assert!(r.unwrap_err().contains("file not found"));
     }
+
+    /// 真機 smoke:對一個真語音檔跑完整 transcribe_file(ffmpeg → whisper-cli → text)。
+    /// 預設 ignore(需 ffmpeg + ~/.mori/bin/whisper-cli + model + 真檔)。跑法:
+    ///   FT_SMOKE_AUDIO=/path/clip.mp3 cargo test --release transcribe_file_smoke -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn transcribe_file_smoke() {
+        let path = std::env::var("FT_SMOKE_AUDIO")
+            .expect("set FT_SMOKE_AUDIO to a real speech audio file path");
+        let r = transcribe_file(std::path::Path::new(&path)).expect("transcribe_file should succeed");
+        eprintln!(
+            "\n=== transcript ({:.1}s) ===\n{}\n=== end ===\n",
+            r.duration_secs, r.text
+        );
+        assert!(!r.text.trim().is_empty(), "transcript should be non-empty for speech audio");
+    }
 }
