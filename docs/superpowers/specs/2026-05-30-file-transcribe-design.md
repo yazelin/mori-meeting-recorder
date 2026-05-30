@@ -33,31 +33,30 @@ yazelin 拍板:recorder 收下這個能力,desktop 最終整個 Transcribe tab �
 
 ### 後端 `src-tauri/src/file_transcribe.rs`(新模組)
 
-純函式 + filesystem + subprocess,跟 `recorder.rs` 的 session 生命週期解耦。
+filesystem + subprocess,跟 `recorder.rs` 的 session 生命週期解耦。全 **sync**(沿用 recorder transcribe 鏈 sync 風格)。
 
-- `extract_wav_bytes(input: &Path) -> Result<Vec<u8>>` — port 自 desktop:`ffmpeg -i <input> -ar 16000 -ac 1 -f wav -`(任何格式 → 16kHz mono WAV bytes)。
-- `probe_duration_secs(input: &Path) -> f32` — `ffprobe` 一行 JSON 拿總長。
-- `chunk_wav(wav, chunk_secs) -> Vec<Vec<u8>>` — >5min 切 5min chunk(純函式,可測)。
-- `transcribe_file(input: &Path, language, model, on_progress) -> Result<FileTranscript>`:
-  1. `whisper_discovery::ensure_server(model)`(沿用,不另寫啟動邏輯)。
-  2. `extract_wav_bytes` → `chunk_wav`。
-  3. 每塊呼 `transcribe::run_whisper(...)`(沿用既有 server+CLI fallback + 繁體 s2twp + noise filter),取 `Segment.text` 串接。
-  4. 回 `FileTranscript { source_path, text, duration_secs, chunks }`。
-- `ffmpeg_present() / ffprobe_present()` — deps 檢查用。
+- `extract_wav_to_temp(input: &Path) -> Result<NamedTempFile, String>` — port desktop `extract_wav_bytes` 的 ffmpeg 參數(`ffmpeg -hide_banner -loglevel error -i <input> -vn -ar 16000 -ac 1 -c:a pcm_s16le -f wav <temp.wav>`),用 `std::process::Command`(sync),輸出寫 `tempfile::NamedTempFile`。
+- `supported_extension(path: &Path) -> bool` — 純函式,白名單 `wav/mp3/m4a/flac/mp4/mkv/webm/ogg/aac`(可測)。
+- `ffmpeg_present() -> bool` — `ffmpeg -version` exit 0(deps 檢查用)。
+- `transcribe_file(input: &Path) -> Result<FileTranscript, String>`:
+  1. `extract_wav_to_temp(input)`。
+  2. `cfg = config::read_config()`(拿 language / traditional)。
+  3. **`transcribe::run_whisper(temp.path(), &label, SourceKind::MicInternal, &cfg.language, cfg.traditional, &mut None)`** — 傳 `&mut None` 直走 whisper-cli 路徑(`None` 分支),**避開共享 server 的 60s per-call timeout**;whisper-cli 原生處理任意長度檔,MVP 免手動分塊。沿用既有 noise filter + 繁體 s2twp 後處理。`kind`/`session_id` 標記丟棄,只取 `Segment.text` 以空白串接。
+  4. duration 用 `hound` 讀 temp WAV(recorder 已有 hound dep);回 `FileTranscript { source_path, text, duration_secs }`。
 
-**reuse 而非複製**:whisper 推論一律走 `transcribe::run_whisper`。檔案轉錄餵 `run_whisper` 的 `session_id` = 來源檔名(僅供 log/暫存命名)、`kind` 取一個中性值;只取回傳 segments 的 `.text` 串接,丟掉 track/visibility 標記。如 `run_whisper` 簽章不適合純文字用途,在 `transcribe.rs` 抽一個 `transcribe_wav_to_text(wav, language) -> String` 共用核給兩邊用(meeting 路徑也改走它)。
+**reuse 而非複製**:whisper 一律走既有 `transcribe::run_whisper`,零新 whisper 程式碼。共享 whisper-**server** 路徑(需為長檔分塊配 60s timeout)列 follow-up,非 MVP。
 
 ### 新 Tauri commands(`main.rs` 註冊)
 
-- `file_transcribe_check_deps() -> FileTranscribeDeps`（ffmpeg/ffprobe + whisper-server/model 狀態,給 UI 紅標）。
-- `file_transcribe_one(path, language?) -> FileTranscript`。
-- `file_transcribe_save_txt(source_path, text) -> String`(存 `<name>.txt` 在原檔旁)。
-- 進度事件:`file-transcribe-chunk`(payload `{ chunk, total }`,長檔分塊)。**emit 用 snake_case**(Tauri auto-camelCase 不作用於 emit)。
+- `file_transcribe_check_deps() -> FileTranscribeDeps { ffmpeg_ok, whisper_cli_ok, model_ok }`(複用既有 `deps_check` 的 whisper/model 檢查 + 新 ffmpeg)。
+- `file_transcribe_one(path: String) -> Result<FileTranscript, String>`(sync command,阻塞至轉完;UI 顯示 spinner)。
+- `file_transcribe_save_txt(source_path: String, text: String) -> Result<String, String>`(存 `<name>.txt` 在原檔旁)。
+- MVP 無分塊 → 無進度事件,UI 用「轉錄中」spinner。(批次 / 分塊進度列 follow-up。)
 
 ### 前端 `src/tabs/FilesTab.tsx`(新分頁)
 
 - 加進 ExpandedView 的 tab 列(現 Record/Live/Sessions/People/Deps/Settings → +Files)。
-- 移植 desktop TranscribeTab 的**單檔**部分:deps 狀態列、檔案 picker + drag-drop、語言下拉(沿用 recorder config.language 預設)、轉錄按鈕(deps 紅標時 disable)、進度(分塊)、結果文字 + copy + 「存 .txt」。
+- 移植 desktop TranscribeTab 的**單檔**部分:deps 狀態列、檔案 picker + drag-drop、語言下拉(沿用 recorder config.language 預設)、轉錄按鈕(deps 紅標時 disable)、轉錄中 spinner、結果文字 + copy + 「存 .txt」。
 - **用 recorder 自己的 css**(`src/theme.css` token,不抄 desktop var(--c-*))。
 - i18n 走 recorder 既有 i18n。
 
@@ -71,10 +70,10 @@ yazelin 拍板:recorder 收下這個能力,desktop 最終整個 Transcribe tab �
 
 ```
 使用者選檔
-  → file_transcribe_one(path)
-  → ensure_server(model)  (喚醒共享 whisper-server,閒置自關)
-  → ffmpeg extract 16kHz mono WAV  (emit file-transcribe-chunk 進度)
-  → chunk(>5min)→ 每塊 run_whisper → 串接 text
+  → file_transcribe_one(path)            (sync,阻塞至完成,UI 顯示 spinner)
+  → ffmpeg extract 16kHz mono WAV        → tempfile NamedTempFile
+  → run_whisper(temp, …, &mut None)      → whisper-cli(原生處理任意長度)→ noise filter + 繁體 → Vec<Segment>
+  → 串接 segment.text(空白接連)
   → FileTranscript 回 UI(顯示 + copy + 可選存 .txt 旁邊)
 ```
 
