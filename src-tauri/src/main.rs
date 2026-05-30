@@ -645,6 +645,23 @@ async fn summarize_session(
     .map_err(|e| format!("join summarize_session: {e}"))?
 }
 
+/// 讀已生成的摘要 .md(`kind` = "public" / "internal")。
+/// 缺檔 → 回 None(前端顯示「尚未生成」),不視為錯誤。
+/// Tauri v2 auto-camelCase → JS sessionId / kind。
+#[tauri::command]
+fn read_summary_md(session_id: String, kind: String) -> Option<String> {
+    let store = session_store::SessionStore {
+        session_id: session_id.clone(),
+        root: session_store::default_meetings_dir().join(&session_id),
+    };
+    let path = match kind.as_str() {
+        "public" => store.summary_public_md_path(),
+        "internal" => store.summary_internal_md_path(),
+        _ => return None,
+    };
+    std::fs::read_to_string(path).ok()
+}
+
 // ── C3: 分人修正 command ────────────────────────────────────────────────────────
 
 /// 合併講者:把 merge_ids 的段全改成 keep_id(兩軌)+ 從 speakers.json 移除 merge_ids。
@@ -894,6 +911,7 @@ fn main() {
             set_meeting_info_for,
             reexport_session,
             summarize_session,
+            read_summary_md,
             // C3: diarization correction commands
             merge_speakers,
             set_segment_speaker,

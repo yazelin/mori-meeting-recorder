@@ -36,6 +36,20 @@ interface MeetingInfo {
   participants: string;
 }
 
+// 後端 SummaryResult(serde snake_case;Tauri 回傳值不 camelCase 化)。
+interface SummaryResult {
+  public_backend: string; // "groq" | "ollama" | "none" | "(failed)"
+  internal_backend: string;
+  public_chars: number;
+  internal_chars: number;
+  redaction_count: number;
+}
+
+// get_config 帶出的摘要相關欄位(只用得到 force-local 預設)。
+interface SummaryConfig {
+  summary_force_local_default: boolean;
+}
+
 interface Props {
   sessionId: string;
   onBack: () => void;
@@ -78,6 +92,17 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
   const [reexporting, setReexporting] = useState(false);
   const [reexportMsg, setReexportMsg] = useState<string | null>(null);
   const [reexportErr, setReexportErr] = useState<string | null>(null);
+
+  // Summary state — 獨立 state,不與 reexport 共用(§8.2 gotcha:同時觸發會互相 stomp)。
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryMsg, setSummaryMsg] = useState<string | null>(null);
+  const [summaryErr, setSummaryErr] = useState<string | null>(null);
+  const [forceLocal, setForceLocal] = useState(false);
+  const [summaryPublic, setSummaryPublic] = useState<string | null>(null);
+  const [summaryInternal, setSummaryInternal] = useState<string | null>(null);
+  const [publicBackend, setPublicBackend] = useState<string | null>(null);
+  const [internalBackend, setInternalBackend] = useState<string | null>(null);
+  const [summaryTab, setSummaryTab] = useState<"public" | "internal">("public");
 
   // Speaker rename pending map: id -> display value being edited
   const [speakerEdits, setSpeakerEdits] = useState<Record<string, string>>({});
@@ -306,6 +331,83 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
     } finally {
       setReexporting(false);
     }
+  };
+
+  // 讀已生成的兩份摘要 .md(缺檔回 null）。
+  const reloadSummaries = useCallback(async () => {
+    const [pub, int] = await Promise.all([
+      invoke<string | null>("read_summary_md", { sessionId, kind: "public" }),
+      invoke<string | null>("read_summary_md", { sessionId, kind: "internal" }),
+    ]);
+    setSummaryPublic(pub ?? null);
+    setSummaryInternal(int ?? null);
+  }, [sessionId]);
+
+  // 進工作區:讀 force-local 預設 + 既有摘要(各自獨立,失敗不互相影響)。
+  useEffect(() => {
+    invoke<SummaryConfig>("get_config")
+      .then((cfg) => setForceLocal(!!cfg.summary_force_local_default))
+      .catch(() => {});
+    reloadSummaries().catch((e) => console.error("reloadSummaries:", e));
+  }, [reloadSummaries]);
+
+  // handler 鏡射 reexport():invoke summarize_session → set 兩個 backend → reload 兩份 .md。
+  const summarize = async () => {
+    if (summarizing) return;
+    setSummaryErr(null);
+    setSummaryMsg(null);
+    setSummarizing(true);
+    try {
+      const result = await invoke<SummaryResult>("summarize_session", {
+        sessionId,
+        forceLocal,
+      });
+      setPublicBackend(result.public_backend);
+      setInternalBackend(result.internal_backend);
+      await reloadSummaries();
+      setSummaryMsg(
+        result.redaction_count > 0
+          ? t("workspace.summary_ok_redacted", { count: result.redaction_count })
+          : t("workspace.summary_ok")
+      );
+      setTimeout(() => setSummaryMsg(null), 4000);
+    } catch (e: any) {
+      // 部分 / 全失敗時後端回 Err 字串,直接顯示;已成功那遍的 .md 仍重載。
+      setSummaryErr(String(e));
+      await reloadSummaries().catch(() => {});
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
+  // 內部補充即時預覽:直接讀記憶體 segments(supplement=true 的麥克風段),不必先重匯出。
+  const supplementSegments = segments.filter(
+    (s) => s.supplement && s.track !== "system"
+  );
+
+  // 後端徽章:☁ Groq(雲端)/ ⚡ 本機 Ollama / 其他狀態。
+  const renderBackendBadge = (backend: string | null) => {
+    if (backend === "groq") {
+      return (
+        <span className="backend-badge cloud">
+          {`☁ ${t("workspace.backend_groq")}`}
+        </span>
+      );
+    }
+    if (backend === "ollama") {
+      return (
+        <span className="backend-badge local">
+          {`⚡ ${t("workspace.backend_ollama")}`}
+        </span>
+      );
+    }
+    if (backend === "(failed)") {
+      return (
+        <span className="backend-badge failed">{t("workspace.backend_failed")}</span>
+      );
+    }
+    // "none"(空逐字稿)或 null(尚未生成)
+    return <span className="backend-badge none">{t("workspace.backend_none")}</span>;
   };
 
   // Build speaker display map for transcript rendering
@@ -654,6 +756,95 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
           })}
         </div>
       )}
+
+      {/* 會議紀錄(摘要)section — 在 reexport 之前(§8.1) */}
+      <h4>{t("workspace.summary_title")}</h4>
+      <div className="summary-section">
+        {/* 後端徽章:客戶版 / 內部版 各自標 */}
+        <div className="summary-backends">
+          <span className="summary-backend-group">
+            <span className="summary-backend-label">{t("workspace.summary_tab_public")}</span>
+            {renderBackendBadge(publicBackend)}
+          </span>
+          <span className="summary-backend-group">
+            <span className="summary-backend-label">{t("workspace.summary_tab_internal")}</span>
+            {renderBackendBadge(internalBackend)}
+          </span>
+        </div>
+
+        {/* 強制本地 toggle(知情同意,§5.3) */}
+        <label className="summary-force-local">
+          <input
+            type="checkbox"
+            checked={forceLocal}
+            onChange={(e) => setForceLocal(e.target.checked)}
+            style={{ accentColor: "var(--accent)", cursor: "pointer", flexShrink: 0 }}
+          />
+          <span>
+            <span className="summary-force-local-label">{t("workspace.force_local")}</span>
+            <span className="summary-force-local-hint">{t("workspace.force_local_hint")}</span>
+          </span>
+        </label>
+
+        {/* 生成 / 重新整理 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button className="mmr-btn primary" onClick={summarize} disabled={summarizing}>
+            {summarizing
+              ? <><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("workspace.summarizing")}</>
+              : (summaryPublic || summaryInternal ? t("workspace.summary_reload") : t("workspace.summary_btn"))}
+          </button>
+          {summaryMsg && <span style={{ fontSize: 11, color: "var(--found-color)" }}>{summaryMsg}</span>}
+        </div>
+        {summaryErr && (
+          <div className="callout" style={{ marginTop: 8, color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.3)", background: "rgba(255,99,99,0.08)" }}>
+            {summaryErr}
+          </div>
+        )}
+
+        {/* 客戶版 / 內部版 分頁 */}
+        <div className="summary-tabs">
+          <button
+            className={`tab-btn${summaryTab === "public" ? " active" : ""}`}
+            onClick={() => setSummaryTab("public")}
+          >
+            {t("workspace.summary_tab_public")}
+          </button>
+          <button
+            className={`tab-btn${summaryTab === "internal" ? " active" : ""}`}
+            onClick={() => setSummaryTab("internal")}
+          >
+            {t("workspace.summary_tab_internal")}
+          </button>
+        </div>
+
+        {summaryTab === "public" ? (
+          <div className="summary-body">
+            {summaryPublic
+              ? <pre className="summary-md">{summaryPublic}</pre>
+              : <p className="summary-empty">{t("workspace.summary_empty")}</p>}
+          </div>
+        ) : (
+          <div className="summary-body">
+            {summaryInternal
+              ? <pre className="summary-md">{summaryInternal}</pre>
+              : <p className="summary-empty">{t("workspace.summary_empty")}</p>}
+            {/* 內部補充即時預覽:supplement=true 的麥克風段,直接讀記憶體 segments */}
+            <div className="summary-supplement-preview">
+              <div className="summary-supplement-title">{t("workspace.supplement_preview_title")}</div>
+              {supplementSegments.length === 0 ? (
+                <p className="summary-empty">{t("workspace.supplement_preview_empty")}</p>
+              ) : (
+                supplementSegments.map((seg) => (
+                  <div key={`${seg.track}-${seg.start_ms}`} className="summary-supplement-line">
+                    <span className="summary-supplement-ts">{fmtMs(seg.start_ms)}</span>
+                    <span className="summary-supplement-text">{seg.text}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Re-export section */}
       <h4>{t("workspace.reexport_title")}</h4>
