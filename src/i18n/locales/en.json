@@ -29,7 +29,16 @@
     "copy": "Copy",
     "copied": "Copied",
     "save_txt": "Save .txt",
-    "saved": "Saved to {{path}}"
+    "saved": "Saved to {{path}}",
+    "pick_folder": "Pick folder",
+    "batch_start": "Start batch",
+    "batch_cancel": "Cancel",
+    "batch_progress": "Done {{done}} / {{total}} (failed {{failed}})",
+    "no_media": "No transcribable audio/video files in this folder.",
+    "status_pending": "Pending",
+    "status_running": "Transcribing…",
+    "status_done": "Done",
+    "status_error": "Failed"
   },
   "record": {
     "start_button": "Start recording",

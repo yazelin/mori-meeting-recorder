@@ -29,7 +29,16 @@
     "copy": "複製",
     "copied": "已複製",
     "save_txt": "存 .txt",
-    "saved": "已存到 {{path}}"
+    "saved": "已存到 {{path}}",
+    "pick_folder": "選資料夾",
+    "batch_start": "開始批次轉錄",
+    "batch_cancel": "取消",
+    "batch_progress": "完成 {{done}} / {{total}}(失敗 {{failed}})",
+    "no_media": "這個資料夾沒有可轉的音/影檔。",
+    "status_pending": "待處理",
+    "status_running": "轉錄中…",
+    "status_done": "完成",
+    "status_error": "失敗"
   },
   "record": {
     "start_button": "開始錄音",
