@@ -95,6 +95,14 @@ fn file_transcribe_save_txt(source_path: String, text: String) -> Result<String,
     Ok(out.display().to_string())
 }
 
+/// 列出資料夾頂層可轉錄的音/影檔路徑(只頂層、副檔名白名單、依檔名排序)。
+/// 只列、不轉;轉錄由前端逐檔呼 `file_transcribe_one` + `file_transcribe_save_txt`。
+#[tauri::command]
+fn file_transcribe_list_dir(folder: String) -> Result<Vec<String>, String> {
+    let paths = file_transcribe::list_supported_in_dir(std::path::Path::new(&folder))?;
+    Ok(paths.into_iter().map(|p| p.display().to_string()).collect())
+}
+
 #[tauri::command]
 fn get_config() -> config::RecorderConfig {
     config::read_config()
@@ -912,6 +920,7 @@ fn main() {
             deps_check,
             file_transcribe_one,
             file_transcribe_save_txt,
+            file_transcribe_list_dir,
             get_config,
             set_config,
             set_meeting_info,
