@@ -339,6 +339,7 @@ impl Recorder {
             transcribe_model,                 // 這場用的 whisper 模型
             diarize_seg_model: None,          // 還沒分人(會後跑 diarize_session 才填)
             diarize_emb_model: None,
+            recording_mode: "online".into(), // Task 5 改成依 session.recording_mode 動態分流
         };
         let (pub_md, int_md, timeline) = export(&all_segs, &meta, &[])?;
         std::fs::write(store.public_md_path(), pub_md).map_err(|e| format!("write public.md: {e}"))?;

@@ -470,6 +470,7 @@ mod tests {
             transcribe_model: "small".into(),
             diarize_seg_model: None,
             diarize_emb_model: None,
+            recording_mode: "online".into(),
         };
         std::fs::write(
             root.join("timeline.json"),
