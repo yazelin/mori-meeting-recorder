@@ -9,7 +9,7 @@ pub fn manifest_json(binary_path: &Path) -> String {
         "id": "mori.meeting-recorder",
         "name": "Mori Meeting Recorder",
         "kind": "standalone_app",
-        "description": "Dual-track meeting recorder (system + mic) with visibility-based export. Observer Mode MVP.",
+        "description": "Meeting recorder — online (dual-track system + mic, visibility-based export) or in-person (single room mic → meeting.md). Observer Mode MVP.",
         "capabilities": [
             "audio.capture.system",
             "audio.capture.mic",
