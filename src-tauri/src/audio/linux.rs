@@ -137,8 +137,7 @@ pub fn open_capture(
         Direction::Record,
         source_name.as_deref(), // None = default input;Some("xxx.monitor") = system loopback
         match source {
-            SourceKind::MicInternal => "mic-internal",
-            SourceKind::MeetingRoom => "room-mic",
+            SourceKind::MicInternal | SourceKind::MeetingRoom => "mic-internal",
             SourceKind::MeetingSystem => "system-loopback",
         },
         &spec,

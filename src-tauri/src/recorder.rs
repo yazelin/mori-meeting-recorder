@@ -159,14 +159,14 @@ impl Recorder {
             let out = store.audio_path(kind);
             let prog = match kind {
                 SourceKind::MeetingSystem => &self.sys_progress,
-                SourceKind::MicInternal => &self.mic_progress,
+                SourceKind::MicInternal | SourceKind::MeetingRoom => &self.mic_progress,
             };
             match audio::open_capture(kind, out, vad_cfg.clone(), prog.pending.clone()) {
                 Ok((h, rx)) => {
                     // 前端 LiveTab 用 "sys"/"mic" 兩欄(不是 track_name 的 system/mic-internal)
                     let track = match kind {
                         SourceKind::MeetingSystem => "sys",
-                        SourceKind::MicInternal => "mic",
+                        SourceKind::MicInternal | SourceKind::MeetingRoom => "mic",
                     };
                     let jsonl = store.segments_path(kind);
                     let sid = session_id.clone();
