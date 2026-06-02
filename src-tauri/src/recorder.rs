@@ -1,7 +1,7 @@
 //! Session lifecycle orchestrator。組合 audio::open_capture + SessionStore + transcribe + exporter。
 
 use crate::audio::{self, CaptureHandle, SourceKind};
-use crate::exporter::{export, Exports, SessionMeta, TrackMeta};
+use crate::exporter::{export, export_single, Exports, SessionMeta, TrackMeta};
 use crate::session_store::{default_meetings_dir, new_session_id, SessionStore};
 use crate::transcribe::{Segment};
 use tauri::Emitter;
@@ -294,38 +294,77 @@ impl Recorder {
         Ok(session_id)
     }
 
-    /// 背景收尾:join capture writer + worker(等佇列 drain 完)→ 讀回兩軌 jsonl 彙整 → 匯出三檔。
+    /// 背景收尾:join capture writer + worker(等佇列 drain 完)→ 依模式動態建軌 → 分流匯出。
     /// 不碰 `state`(由 stop_session 的背景執行緒在結束時統一設 Idle,確保出錯也會回 Idle)。
     fn finalize_session(&self, session: ActiveSession) -> Result<(), String> {
         let store = session.store;
         let started_at = session.started_at;
         let transcribe_model = session.transcribe_model;
+        let recording_mode = session.recording_mode;
         let session_id = store.session_id.clone();
 
-        // 1. capture thread flush VadChunker → 送最後段 → drop Sender。
+        // 1. capture thread flush；2. worker drain。
         for h in session.handles {
             let _ = h.writer_handle.join();
         }
-        // 2. Sender 已 drop → 各 worker recv() 收到 Err → loop 結束;join 等它把佇列剩餘段轉完。
         for w in session.workers {
             let _ = w.handle.join();
         }
-        // 3. 讀回兩軌 jsonl 彙整(jsonl 已由 worker 即時 append,不再 stop 時 batch 轉整檔)。
+
+        let stopped_at = Local::now();
+        let duration_secs = (stopped_at - started_at).num_seconds().max(0) as u64;
+
+        // 依模式讀軌 + 建 tracks + 匯出。
+        if recording_mode == "in_person" {
+            // 現場:單一 room 軌 → 單一 meeting.md。
+            let room_segs = crate::transcribe::read_segments_jsonl(
+                &store.segments_path(SourceKind::MeetingRoom),
+            );
+            let meta = SessionMeta {
+                schema_version: 1,
+                session_id: session_id.clone(),
+                started_at: started_at.to_rfc3339(),
+                stopped_at: stopped_at.to_rfc3339(),
+                duration_secs,
+                tracks: vec![TrackMeta {
+                    name: "room".into(),
+                    source_kind: "meeting_room".into(),
+                    visibility: "public".into(),
+                    audio_path: "audio/room.wav".into(),
+                    transcript_path: "transcript/room.segments.jsonl".into(),
+                    segment_count: room_segs.len(),
+                }],
+                exports: Exports {
+                    public: "meeting.md".into(),
+                    internal: String::new(),
+                },
+                transcribe_model,
+                diarize_seg_model: None,
+                diarize_emb_model: None,
+                recording_mode,
+            };
+            let (meeting_md, timeline) = export_single(&room_segs, &meta, &[])?;
+            std::fs::write(store.meeting_md_path(), meeting_md)
+                .map_err(|e| format!("write meeting.md: {e}"))?;
+            std::fs::write(store.timeline_path(), timeline)
+                .map_err(|e| format!("write timeline.json: {e}"))?;
+            return Ok(());
+        }
+
+        // 線上:雙軌 → public/internal 兩檔(行為與既有相同)。
         let sys_segs = crate::transcribe::read_segments_jsonl(
             &store.segments_path(SourceKind::MeetingSystem),
         );
         let mic_segs = crate::transcribe::read_segments_jsonl(
             &store.segments_path(SourceKind::MicInternal),
         );
-
-        let stopped_at = Local::now();
         let all_segs: Vec<Segment> = sys_segs.iter().chain(mic_segs.iter()).cloned().collect();
         let meta = SessionMeta {
             schema_version: 1,
             session_id: session_id.clone(),
             started_at: started_at.to_rfc3339(),
             stopped_at: stopped_at.to_rfc3339(),
-            duration_secs: (stopped_at - started_at).num_seconds().max(0) as u64,
+            duration_secs,
             tracks: vec![
                 TrackMeta {
                     name: "system".into(),
@@ -348,10 +387,10 @@ impl Recorder {
                 public: "meeting.public.md".into(),
                 internal: "meeting.internal.md".into(),
             },
-            transcribe_model,                 // 這場用的 whisper 模型
-            diarize_seg_model: None,          // 還沒分人(會後跑 diarize_session 才填)
+            transcribe_model,
+            diarize_seg_model: None,
             diarize_emb_model: None,
-            recording_mode: "online".into(), // Task 5 改成依 session.recording_mode 動態分流
+            recording_mode,
         };
         let (pub_md, int_md, timeline) = export(&all_segs, &meta, &[])?;
         std::fs::write(store.public_md_path(), pub_md).map_err(|e| format!("write public.md: {e}"))?;

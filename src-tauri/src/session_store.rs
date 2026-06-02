@@ -39,6 +39,7 @@ impl SessionStore {
 
     pub fn public_md_path(&self) -> PathBuf { self.root.join("meeting.public.md") }
     pub fn internal_md_path(&self) -> PathBuf { self.root.join("meeting.internal.md") }
+    pub fn meeting_md_path(&self) -> PathBuf { self.root.join("meeting.md") }
     pub fn timeline_path(&self) -> PathBuf { self.root.join("timeline.json") }
 
     // ── 摘要產物(§4.3):跟逐字稿匯出檔並列,一眼可分。 ──
