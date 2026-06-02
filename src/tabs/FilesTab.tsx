@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
@@ -16,6 +16,13 @@ type FileTranscript = {
   text: string;
   duration_secs: number;
 };
+type BatchItem = {
+  path: string;
+  name: string;
+  status: "pending" | "running" | "done" | "error";
+  error?: string;
+  chars?: number;
+};
 
 const MEDIA_EXTS = [
   "wav", "mp3", "m4a", "flac", "ogg", "aac", "opus", "wma",
@@ -32,12 +39,19 @@ export default function FilesTab() {
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // 批次資料夾轉錄
+  const [items, setItems] = useState<BatchItem[]>([]);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const cancelRef = useRef(false);
+
   const recheck = async () => {
     try { setDeps(await invoke<DepsCheck>("deps_check")); } catch {}
   };
   useEffect(() => { recheck(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const depsOk = !!deps && deps.ffmpeg_ok && deps.whisper_cli_ok && deps.model_ok;
+  const batchDone = items.filter((it) => it.status === "done").length;
+  const batchErr = items.filter((it) => it.status === "error").length;
 
   const pick = async () => {
     setErr(null); setResult(null); setSavedAt(null);
@@ -56,6 +70,41 @@ export default function FilesTab() {
       setBusy(false);
     }
   };
+
+  const pickFolder = async () => {
+    setErr(null); setResult(null); setSavedAt(null); setItems([]);
+    const sel = await open({ directory: true, multiple: false });
+    if (typeof sel !== "string") return;
+    try {
+      const paths = await invoke<string[]>("file_transcribe_list_dir", { folder: sel });
+      if (paths.length === 0) { setErr(t("files.no_media")); return; }
+      setItems(paths.map((p) => ({ path: p, name: p.split(/[\\/]/).pop() || p, status: "pending" })));
+    } catch (e: any) {
+      setErr(String(e));
+    }
+  };
+
+  const runBatch = async () => {
+    if (!items.length || batchRunning) return;
+    cancelRef.current = false;
+    setBatchRunning(true); setErr(null);
+    const snapshot = items;
+    for (let i = 0; i < snapshot.length; i++) {
+      if (cancelRef.current) break;
+      if (snapshot[i].status === "done") continue;
+      setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: "running" } : it)));
+      try {
+        const r = await invoke<FileTranscript>("file_transcribe_one", { path: snapshot[i].path });
+        await invoke<string>("file_transcribe_save_txt", { sourcePath: r.source_path, text: r.text });
+        setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: "done", chars: r.text.length } : it)));
+      } catch (e: any) {
+        setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: "error", error: String(e) } : it)));
+      }
+    }
+    setBatchRunning(false);
+  };
+
+  const cancelBatch = () => { cancelRef.current = true; };
 
   const copy = async () => {
     if (!result) return;
@@ -102,6 +151,7 @@ export default function FilesTab() {
             ? (<><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("files.transcribing")}</>)
             : t("files.start")}
         </button>
+        <button className="mmr-btn" onClick={pickFolder} disabled={busy || batchRunning}>{t("files.pick_folder")}</button>
       </div>
       {fileName && <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "8px 0 0" }}>{fileName}</p>}
 
@@ -122,6 +172,33 @@ export default function FilesTab() {
             <button className="mmr-btn" onClick={copy}>{copied ? t("files.copied") : t("files.copy")}</button>
             <button className="mmr-btn" onClick={saveTxt}>{t("files.save_txt")}</button>
             {savedAt && <span style={{ fontSize: 10.5, color: "var(--found-color)" }}>{t("files.saved", { path: savedAt })}</span>}
+          </div>
+        </div>
+      )}
+      {items.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            {batchRunning ? (
+              <button className="mmr-btn" onClick={cancelBatch}>{t("files.batch_cancel")}</button>
+            ) : (
+              <button className="mmr-btn primary" onClick={runBatch} disabled={!depsOk}>{t("files.batch_start")}</button>
+            )}
+            <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+              {t("files.batch_progress", { done: batchDone, total: items.length, failed: batchErr })}
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 200, overflowY: "auto" }}>
+            {items.map((it) => (
+              <div key={it.path} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11, padding: "2px 0" }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.error ?? it.path}>{it.name}</span>
+                <span style={{ flexShrink: 0, color: it.status === "error" ? "var(--danger-color)" : it.status === "done" ? "var(--found-color)" : "var(--text-dim)" }}>
+                  {it.status === "pending" && t("files.status_pending")}
+                  {it.status === "running" && t("files.status_running")}
+                  {it.status === "done" && `${t("files.status_done")}${typeof it.chars === "number" ? ` (${it.chars})` : ""}`}
+                  {it.status === "error" && t("files.status_error")}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}
