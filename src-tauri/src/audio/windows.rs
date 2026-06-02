@@ -19,6 +19,9 @@ pub fn pick_device(source: SourceKind) -> Result<Device, String> {
         SourceKind::MicInternal => host
             .default_input_device()
             .ok_or_else(|| "no default input device".into()),
+        SourceKind::MeetingRoom => host
+            .default_input_device()
+            .ok_or_else(|| "no default input device".into()),
         SourceKind::MeetingSystem => host
             .default_output_device()
             .ok_or_else(|| "no default output device for loopback".into()),
@@ -34,6 +37,9 @@ pub fn open_capture(
     let device = pick_device(source)?;
     let default_config = match source {
         SourceKind::MicInternal => device
+            .default_input_config()
+            .map_err(|e| format!("default_input_config: {e}"))?,
+        SourceKind::MeetingRoom => device
             .default_input_config()
             .map_err(|e| format!("default_input_config: {e}"))?,
         SourceKind::MeetingSystem => device

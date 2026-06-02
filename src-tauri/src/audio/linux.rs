@@ -30,6 +30,7 @@ const CHUNK_BYTES: usize = CHUNK_SAMPLES * 2; // i16 = 2 bytes
 pub fn pick_source(source: SourceKind) -> Result<Option<String>, String> {
     match source {
         SourceKind::MicInternal => Ok(None),
+        SourceKind::MeetingRoom => Ok(None),
         SourceKind::MeetingSystem => pick_system_monitor().map(Some),
     }
 }
@@ -137,6 +138,7 @@ pub fn open_capture(
         source_name.as_deref(), // None = default input;Some("xxx.monitor") = system loopback
         match source {
             SourceKind::MicInternal => "mic-internal",
+            SourceKind::MeetingRoom => "room-mic",
             SourceKind::MeetingSystem => "system-loopback",
         },
         &spec,
