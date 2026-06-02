@@ -38,7 +38,8 @@
     "status_pending": "Pending",
     "status_running": "Transcribing…",
     "status_done": "Done",
-    "status_error": "Failed"
+    "status_error": "Failed",
+    "status_cancelled": "Cancelled"
   },
   "record": {
     "start_button": "Start recording",

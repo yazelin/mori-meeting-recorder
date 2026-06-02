@@ -19,7 +19,7 @@ type FileTranscript = {
 type BatchItem = {
   path: string;
   name: string;
-  status: "pending" | "running" | "done" | "error";
+  status: "pending" | "running" | "done" | "error" | "cancelled";
   error?: string;
   chars?: number;
 };
@@ -89,19 +89,26 @@ export default function FilesTab() {
     cancelRef.current = false;
     setBatchRunning(true); setErr(null);
     const snapshot = items;
-    for (let i = 0; i < snapshot.length; i++) {
-      if (cancelRef.current) break;
-      if (snapshot[i].status === "done") continue;
-      setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: "running" } : it)));
-      try {
-        const r = await invoke<FileTranscript>("file_transcribe_one", { path: snapshot[i].path });
-        await invoke<string>("file_transcribe_save_txt", { sourcePath: r.source_path, text: r.text });
-        setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: "done", chars: r.text.length } : it)));
-      } catch (e: any) {
-        setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: "error", error: String(e) } : it)));
+    try {
+      for (let i = 0; i < snapshot.length; i++) {
+        if (cancelRef.current) break;
+        if (snapshot[i].status === "done") continue;
+        setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: "running" } : it)));
+        try {
+          const r = await invoke<FileTranscript>("file_transcribe_one", { path: snapshot[i].path });
+          await invoke<string>("file_transcribe_save_txt", { sourcePath: r.source_path, text: r.text });
+          setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: "done", chars: r.text.length } : it)));
+        } catch (e: any) {
+          setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: "error", error: String(e) } : it)));
+        }
       }
+      // 取消:剩下還沒跑的標「已中止」,跟 pending(從沒跑過)區隔
+      if (cancelRef.current) {
+        setItems((prev) => prev.map((it) => (it.status === "pending" ? { ...it, status: "cancelled" } : it)));
+      }
+    } finally {
+      setBatchRunning(false);
     }
-    setBatchRunning(false);
   };
 
   const cancelBatch = () => { cancelRef.current = true; };
@@ -146,12 +153,12 @@ export default function FilesTab() {
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
         <button className="mmr-btn" onClick={pick} disabled={busy}>{t("files.pick")}</button>
-        <button className="mmr-btn primary" onClick={transcribe} disabled={!path || !depsOk || busy}>
+        <button className="mmr-btn primary" onClick={transcribe} disabled={!path || !depsOk || busy || batchRunning}>
           {busy
             ? (<><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("files.transcribing")}</>)
             : t("files.start")}
         </button>
-        <button className="mmr-btn" onClick={pickFolder} disabled={busy || batchRunning}>{t("files.pick_folder")}</button>
+        <button className="mmr-btn" onClick={pickFolder} disabled={busy || batchRunning || !depsOk}>{t("files.pick_folder")}</button>
       </div>
       {fileName && <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: "8px 0 0" }}>{fileName}</p>}
 
@@ -196,6 +203,7 @@ export default function FilesTab() {
                   {it.status === "running" && t("files.status_running")}
                   {it.status === "done" && `${t("files.status_done")}${typeof it.chars === "number" ? ` (${it.chars})` : ""}`}
                   {it.status === "error" && t("files.status_error")}
+                  {it.status === "cancelled" && t("files.status_cancelled")}
                 </span>
               </div>
             ))}

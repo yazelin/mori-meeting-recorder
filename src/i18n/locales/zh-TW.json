@@ -38,7 +38,8 @@
     "status_pending": "待處理",
     "status_running": "轉錄中…",
     "status_done": "完成",
-    "status_error": "失敗"
+    "status_error": "失敗",
+    "status_cancelled": "已中止"
   },
   "record": {
     "start_button": "開始錄音",
