@@ -26,6 +26,8 @@ pub struct ActiveSession {
     pub workers: Vec<crate::transcribe::TranscribeWorker>,
     /// 開錄當時的 whisper 模型(config.model),停止彙整時記進 timeline.json。
     pub transcribe_model: String,
+    /// 這場的錄音模式("online" / "in_person"),finalize 依此分流匯出。
+    pub recording_mode: String,
 }
 
 /// 語音輸入(主題/參與者快速口述)用的獨立麥克風 capture — 跟會議錄音無關,只寫 temp WAV。
@@ -111,6 +113,14 @@ pub struct RecorderStatus {
     pub mic_done: usize,
 }
 
+/// 依錄音模式回傳要開的音源清單。線上=系統+麥(雙軌);現場=單一房間麥。
+pub fn sources_for_mode(mode: &str) -> Vec<SourceKind> {
+    match mode {
+        "in_person" => vec![SourceKind::MeetingRoom],
+        _ => vec![SourceKind::MeetingSystem, SourceKind::MicInternal],
+    }
+}
+
 impl Recorder {
     pub fn start_session(&self, app: tauri::AppHandle) -> Result<String, String> {
         // **全域鎖序 active→state**(start/stop/status 一律先 active 後 state)防 AB-BA deadlock:
@@ -134,6 +144,7 @@ impl Recorder {
         let language = cfg.language.clone();
         let traditional = cfg.traditional;
         let transcribe_model = cfg.model.clone(); // 記下這場用的模型,停止時寫進 timeline.json
+        let recording_mode = cfg.recording_mode.clone();
         // engine=cli → 完全不碰 server。否則:確保有共享 server(沒有就 detached 拉起 supervisor,非阻塞),
         // worker 會在 warmup 期間每段重試 reachable_server() 直到接上(見 spawn_transcribe_worker)。
         // 啟動邏輯住共用模組 whisper_discovery::ensure_server —— 任何 app(含非 Rust 的 `--ensure`)共用同一條。
@@ -155,7 +166,7 @@ impl Recorder {
 
         let mut handles = Vec::new();
         let mut workers = Vec::new();
-        for kind in [SourceKind::MeetingSystem, SourceKind::MicInternal] {
+        for kind in sources_for_mode(&recording_mode) {
             let out = store.audio_path(kind);
             let prog = match kind {
                 SourceKind::MeetingSystem => &self.sys_progress,
@@ -206,6 +217,7 @@ impl Recorder {
             handles,
             workers,
             transcribe_model,
+            recording_mode,
         });
         *self.state.lock().map_err(|e| e.to_string())? = State::Recording;
 
@@ -525,4 +537,23 @@ pub fn instance() -> Arc<Recorder> {
     RECORDER
         .get_or_init(|| Arc::new(Recorder::default()))
         .clone()
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    #[test]
+    fn sources_for_mode_picks_tracks() {
+        assert_eq!(
+            sources_for_mode("online"),
+            vec![SourceKind::MeetingSystem, SourceKind::MicInternal]
+        );
+        assert_eq!(sources_for_mode("in_person"), vec![SourceKind::MeetingRoom]);
+        // 未知字串 → 落 online 預設
+        assert_eq!(
+            sources_for_mode("bogus"),
+            vec![SourceKind::MeetingSystem, SourceKind::MicInternal]
+        );
+    }
 }
