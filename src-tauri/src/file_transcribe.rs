@@ -7,7 +7,7 @@
 //! 跟 `recorder.rs` 的 session 生命週期完全解耦 — 沒有 visibility / track 概念,
 //! 不產生 session,輸出也不進 `~/.mori/meetings/`(那是會議專用)。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tempfile::NamedTempFile;
@@ -26,6 +26,31 @@ pub fn supported_extension(path: &Path) -> bool {
         Some(ext) => SUPPORTED_EXTS.contains(&ext.to_ascii_lowercase().as_str()),
         None => false,
     }
+}
+
+/// 列出資料夾**頂層**可轉錄的音/影檔:只取一般檔案(目錄與 symlink 跳過,
+/// `DirEntry::file_type` 不跟隨 symlink)、`supported_extension` 過濾、依檔名
+/// 大小寫不敏感排序。讀不到資料夾回 `Err`。
+pub fn list_supported_in_dir(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let rd = std::fs::read_dir(dir).map_err(|e| format!("read dir {}: {e}", dir.display()))?;
+    let mut out: Vec<PathBuf> = Vec::new();
+    for entry in rd {
+        let entry = entry.map_err(|e| format!("read entry: {e}"))?;
+        let ft = entry.file_type().map_err(|e| format!("file type: {e}"))?;
+        if !ft.is_file() {
+            continue; // 目錄 + symlink 都跳過(不遞迴、symlink 媒體屬 follow-up)
+        }
+        let path = entry.path();
+        if supported_extension(&path) {
+            out.push(path);
+        }
+    }
+    out.sort_by_key(|p| {
+        p.file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    });
+    Ok(out)
 }
 
 /// ffmpeg 在 PATH 且可執行(`ffmpeg -version` exit 0)。deps 檢查用。
@@ -169,5 +194,36 @@ mod tests {
             r.duration_secs, r.text
         );
         assert!(!r.text.trim().is_empty(), "transcript should be non-empty for speech audio");
+    }
+
+    #[test]
+    fn list_supported_in_dir_top_level_only_sorted() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("b.MP4"), b"x").unwrap();
+        std::fs::write(root.join("a.mp3"), b"x").unwrap();
+        std::fs::write(root.join("c.txt"), b"x").unwrap(); // 排除:非白名單
+        std::fs::write(root.join("noext"), b"x").unwrap(); // 排除:無副檔名
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub").join("d.wav"), b"x").unwrap(); // 排除:子資料夾不遞迴
+
+        let got = list_supported_in_dir(root).unwrap();
+        let names: Vec<String> = got
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["a.mp3".to_string(), "b.MP4".to_string()]);
+    }
+
+    #[test]
+    fn list_supported_in_dir_empty_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(list_supported_in_dir(dir.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn list_supported_in_dir_missing_errors() {
+        let r = list_supported_in_dir(&PathBuf::from("/nonexistent/nope-dir-xyz"));
+        assert!(r.is_err());
     }
 }
