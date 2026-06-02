@@ -59,7 +59,11 @@
     "participants": "參與者",
     "participants_ph": "有誰在場(一行一位或用逗號分隔)",
     "voice_input": "語音輸入",
-    "voice_stop": "錄音中,點擊停止"
+    "voice_stop": "錄音中,點擊停止",
+    "mode_online": "線上會議",
+    "mode_in_person": "現場會議",
+    "room_pill": "現場",
+    "source_room": "房間麥克風(預設輸入)"
   },
   "sessions": {
     "title": "Session 列表",

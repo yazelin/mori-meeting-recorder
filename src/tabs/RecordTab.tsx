@@ -40,12 +40,22 @@ export default function RecordTab() {
   const [participants, setParticipants] = useState("");
   const saveInfo = () => { invoke("set_meeting_info", { topic, participants }).catch(() => {}); };
 
+  const recState: RecState = status?.state ?? "idle";
+
   const [mode, setMode] = useState<"online" | "in_person">("online");
   useEffect(() => {
     invoke<{ recording_mode?: string }>("get_config")
       .then((c) => { if (c?.recording_mode === "in_person") setMode("in_person"); })
       .catch(() => {});
   }, []);
+  const changeMode = async (m: "online" | "in_person") => {
+    if (recState !== "idle" || m === mode) return; // 錄音中鎖住
+    setMode(m);
+    try {
+      const cfg = await invoke<Record<string, unknown>>("get_config");
+      await invoke("set_config", { cfg: { ...cfg, recording_mode: m } });
+    } catch (e) { console.error(e); }
+  };
 
   // 語音輸入:點 mic → 錄麥克風;再點 → whisper 轉錄、把文字接到欄位(append,可再打字修)。
   const [voiceField, setVoiceField] = useState<null | "topic" | "participants">(null);
@@ -108,15 +118,6 @@ export default function RecordTab() {
     return () => { unlisten?.(); };
   }, []);
 
-  const recState: RecState = status?.state ?? "idle";
-  const changeMode = async (m: "online" | "in_person") => {
-    if (recState !== "idle" || m === mode) return; // 錄音中鎖住
-    setMode(m);
-    try {
-      const cfg = await invoke<Record<string, unknown>>("get_config");
-      await invoke("set_config", { cfg: { ...cfg, recording_mode: m } });
-    } catch (e) { console.error(e); }
-  };
   const onStartStop = async () => {
     setErr(null);
     try {
