@@ -539,7 +539,7 @@ impl Recorder {
             let mic = s
                 .handles
                 .iter()
-                .find(|h| h.source == SourceKind::MicInternal)
+                .find(|h| h.source == SourceKind::MicInternal || h.source == SourceKind::MeetingRoom)
                 .map(|h| h.signal.lock().map(|sm| sm.has_signal(now_ms)).unwrap_or(false))
                 .unwrap_or(false);
             let sys_level = s.handles.iter()
@@ -547,7 +547,7 @@ impl Recorder {
                 .and_then(|h| h.signal.lock().ok().map(|sm| TrackLevel::from_signal_meter(&sm, now_ms)))
                 .unwrap_or(TrackLevel { peak_db: -120.0, rms_db: -120.0, signal: false });
             let mic_level = s.handles.iter()
-                .find(|h| h.source == SourceKind::MicInternal)
+                .find(|h| h.source == SourceKind::MicInternal || h.source == SourceKind::MeetingRoom)
                 .and_then(|h| h.signal.lock().ok().map(|sm| TrackLevel::from_signal_meter(&sm, now_ms)))
                 .unwrap_or(TrackLevel { peak_db: -120.0, rms_db: -120.0, signal: false });
             (elapsed, sys, mic, Some(s.store.session_id.clone()), Some(LevelsPayload { sys: sys_level, mic: mic_level }))
