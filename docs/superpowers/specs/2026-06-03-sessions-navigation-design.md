@@ -40,14 +40,17 @@
 ### 後端 `src-tauri/src/session_store.rs`(SessionSummary 擴充 + 讀 meeting-info)
 
 - `SessionSummary` 加兩欄:`#[serde(default)] topic: String`、`#[serde(default)] organized: bool`。
-- `read_session_summary` 讀該場 `meeting-info.json`(已有,存 topic/participants),取出 `topic`;
-  並讀其中新欄 `organized`(缺 → false、缺檔 → topic 空 + organized false,graceful)。
+- `read_session_summary` 讀該場 `meeting-info.json`(已有,存 topic/participants)取 `topic`;
+  另讀**獨立** `session-state.json`(`{ "organized": bool }`)取 `organized`。
+  **organized 分檔存、不放 meeting-info.json** —— 因為既有 `set_meeting_info`/`set_meeting_info_for`
+  以 `{topic,participants}` **覆寫整個** meeting-info.json,放一起會被洗掉;分檔互不干擾、也免動既有 writers。
+  缺檔/缺欄 → topic 空 / organized false(graceful,不視為 corrupt)。
 
 ### 後端 `src-tauri/src/main.rs`(兩個新命令 + 註冊)
 
 - `set_session_organized(session_id: String, organized: bool) -> Result<(), String>`:
-  讀該場 `meeting-info.json`(JSON object;缺檔則建一個只含 organized 的)→ 設 `organized` → 原子寫回。
-  **保留既有 topic/participants 欄位**(read-modify-write,不可覆蓋掉)。
+  寫該場獨立 `session-state.json`(`{ "organized": bool }`,原子寫:tmp+rename 或直接 write)。
+  **分檔故完全不碰 meeting-info.json / 既有 writers**(零回歸風險)。
 - `search_sessions_fulltext(query: String) -> Vec<String>`:
   query 去空白後為空 → 回空。否則掃每場匯出的逐字稿 md(`meeting.md` 或 `meeting.public.md` /
   `meeting.internal.md`,存在哪讀哪),**case-insensitive 子字串**命中 → 收該 session_id。
@@ -80,19 +83,19 @@
   打字 → 前端依 topic 即時過濾
   勾「含逐字稿內文」→ debounce search_sessions_fulltext(query) → matchedIds → 併入
 狀態 chips → 前端依 organized 過濾
-標記完成 → set_session_organized(id, bool) → 寫 meeting-info.json → 卡片徽章更新
+標記完成 → set_session_organized(id, bool) → 寫 session-state.json → 卡片徽章更新
 ```
 
 ## 錯誤處理
 
-- `meeting-info.json` 缺 / 壞 → topic 空、organized false(graceful;不視為 corrupt)。
-- `set_session_organized` 必須 **read-modify-write**,不可覆寫掉既有 topic/participants。
+- `meeting-info.json` 缺 / 壞 → topic 空;`session-state.json` 缺 / 壞 → organized false(graceful;不視為 corrupt)。
+- organized 與 topic/participants **分檔**,彼此寫入互不覆蓋(免動既有 meeting-info writers)。
 - `search_sessions_fulltext` 某場讀檔失敗 → 跳過該場;query 空 → 回空清單(前端視為「不限制內文」)。
 - 全文搜尋是 O(場數 × md 大小):62 場沒問題;**大量場次的效能 / 虛擬化列 follow-up**(log 不靜默,搜尋慢時可加提示)。
 
 ## 測試(TDD)
 
-- `set_session_organized` round-trip:寫 organized=true → 再讀 summary 得 organized=true;**且既有 topic 不被洗掉**(先寫含 topic 的 meeting-info.json → set_organized → 驗 topic 還在)。
+- `set_session_organized` round-trip:寫 organized=true → 再讀 summary 得 organized=true;且該場 `meeting-info.json` 的 topic **不受影響**(分檔;先放含 topic 的 meeting-info.json → set_organized → 驗 summary 同時有 topic + organized)。
 - `search_sessions_fulltext`:temp 建 2-3 場(各放 meeting.md / public.md 含不同字)→ query 命中對的場、不命中的不回、空 query 回空、case-insensitive。
 - `SessionSummary` 含 topic / organized(serde default：舊 meeting-info.json 無 organized → false)。
 - **回歸**:既有 SessionSummary 欄位 / 排序 / corrupt 行為不變。
