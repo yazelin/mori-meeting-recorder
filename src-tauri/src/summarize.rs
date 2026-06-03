@@ -501,11 +501,9 @@ pub fn set_groq_api_key_at(config_path: &Path, key: &str) -> Result<(), String> 
     } else {
         groq.insert("api_key".into(), serde_json::Value::String(key.to_string()));
     }
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir shared config dir: {e}"))?;
-    }
     let body = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
-    std::fs::write(config_path, body).map_err(|e| format!("write shared config: {e}"))
+    // 原子寫:共享 config 其他 app 也讀,避免 crash 寫到半截(atomic_write 內含 mkdir + tmp+rename)。
+    atomic_write(config_path, &body)
 }
 
 /// 鏡射 redact.rs:38-56 的 5 個 pattern(精準 → 寬鬆),redact.rs:63 的 replace_all 邏輯。
