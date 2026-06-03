@@ -258,6 +258,20 @@ html, body {
 .mmr-btn.danger    { background: var(--danger-color); color: rgba(255,255,255,0.96); }
 .mmr-btn.lg { font-size: calc(14px * var(--scale)); padding: 10px 22px; }
 
+/* 整理狀態 pill(Sessions 卡片徽章)+ 會議主題 */
+.mmr-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--pill-bg);
+  font-size: calc(10px * var(--scale));
+  font-weight: 500;
+  white-space: nowrap;
+}
+.mmr-pill.on { background: rgba(77, 242, 153, 0.18); }
+.mc-topic { font-size: calc(13px * var(--scale)); font-weight: 600; }
+
 /* warning callout */
 .callout {
   background: rgba(255, 179, 64, 0.10);
