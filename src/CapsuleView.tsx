@@ -32,10 +32,13 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
   const { t } = useTranslation();
   const [status, setStatus] = useState<RecorderStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [captionsVisible, setCaptionsVisible] = useState(false);
 
   useEffect(() => {
     const tick = async () => {
       try { setStatus(await invoke<RecorderStatus>("recorder_status")); }
+      catch { /* */ }
+      try { setCaptionsVisible(await invoke<boolean>("captions_visible")); }
       catch { /* */ }
     };
     tick();
@@ -55,6 +58,13 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
       setErr(String(e));
       console.error(e);
     }
+  };
+
+  // 浮動字幕視窗開關 — 跟 ExpandedView 的 CC 共用後端 captions_visible/set_captions,狀態同步。
+  const toggleCaptions = async () => {
+    const next = !captionsVisible;
+    setCaptionsVisible(next); // 樂觀更新,下個 poll 校正
+    try { await invoke("set_captions", { visible: next }); } catch { /* ignore */ }
   };
 
   const recState = status?.state ?? "idle";
@@ -77,6 +87,11 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
         )}
       </span>
       <RecordButton state={recState} onClick={onStartStop} />
+      <button
+        className={`icon-btn ${captionsVisible ? "active" : ""}`}
+        onClick={toggleCaptions}
+        title={captionsVisible ? "hide caption windows" : "show caption windows"}
+      >CC</button>
       <button className="icon-btn" onClick={onExpand} title={t("capsule.expand")}>
         <ChevronDownIcon size={12} />
       </button>
