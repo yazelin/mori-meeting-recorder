@@ -35,6 +35,19 @@ pub fn pick_source(source: SourceKind) -> Result<Option<String>, String> {
     }
 }
 
+/// 指定的 pulse source name 目前是否存在(裝置被拔/改名後退預設用)。
+fn pulse_source_exists(name: &str) -> bool {
+    std::process::Command::new("pactl")
+        .args(["list", "short", "sources"])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .any(|l| l.split_whitespace().nth(1) == Some(name))
+        })
+        .unwrap_or(false)
+}
+
 fn pick_system_monitor() -> Result<String, String> {
     // 1. `pactl get-default-sink` → default sink 名稱
     let default_sink = Command::new("pactl")
@@ -104,11 +117,19 @@ fn pick_system_monitor() -> Result<String, String> {
 
 pub fn open_capture(
     source: SourceKind,
+    device: Option<String>,
     out_path: PathBuf,
     vad_cfg: crate::audio::vad::VadConfig,
     pending: Arc<AtomicUsize>,
 ) -> Result<crate::audio::CaptureResult, String> {
-    let source_name = pick_source(source)?;
+    // 指定裝置 → 確認還在才用;麥/room 指定但不在 → 退回預設輸入(範圍#4),不讓現場整場開不起來;
+    // 系統源指定不在 → 仍給該名(後續 libpulse 開失敗,該軌略過)。未指定 → 維持原行為(麥=預設、系統=auto-monitor)。
+    let source_name = match device {
+        Some(d) if pulse_source_exists(&d) => Some(d),
+        Some(_) if matches!(source, SourceKind::MicInternal | SourceKind::MeetingRoom) => None,
+        Some(d) => Some(d),
+        None => pick_source(source)?,
+    };
     let spec = Spec {
         format: Format::S16le,
         channels: 1,

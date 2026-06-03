@@ -28,8 +28,19 @@ pub fn pick_device(source: SourceKind) -> Result<Device, String> {
     }
 }
 
+/// 依名稱在對應清單(麥→input、系統→output)找裝置;找不到回 None(呼叫端退預設,範圍#4)。
+fn find_device_by_name(source: SourceKind, name: &str) -> Option<Device> {
+    let host = cpal::default_host();
+    let mut iter = match source {
+        SourceKind::MeetingSystem => host.output_devices().ok()?,
+        _ => host.input_devices().ok()?,
+    };
+    iter.find(|d| d.name().map(|n| n == name).unwrap_or(false))
+}
+
 pub fn open_capture(
     source: SourceKind,
+    device: Option<String>,
     out_path: PathBuf,
     vad_cfg: crate::audio::vad::VadConfig,
     pending: Arc<AtomicUsize>,
@@ -41,7 +52,7 @@ pub fn open_capture(
 
     // Windows:cpal `Stream`(以及 `Device`)帶 WASAPI/COM thread affinity,是 `!Send`,
     // 不能像 Linux 那樣把 stream `move` 進別條 thread(Linux 的 Stream 是 Send 才編得過)。
-    // 所以整個 cpal 生命週期(pick_device → build_input_stream → play → drop)都關在
+    // 所以整個 cpal 生命週期(find/pick device → build_input_stream → play → drop)都關在
     // 這一條 worker thread 內,絕不跨執行緒搬;build 階段的錯誤透過 ready channel 同步
     // 回報給 caller,讓 open_capture 仍能像以前一樣回傳 Result。
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
@@ -55,16 +66,20 @@ pub fn open_capture(
 
     let writer_thread = std::thread::spawn(move || {
         // ── cpal 物件全部在這條 thread 內建立 / 持有 / drop ──
-        let device = match pick_device(source) {
-            Ok(d) => d,
-            Err(e) => {
-                let _ = ready_tx.send(Err(e.clone()));
-                return Err(e);
-            }
+        // 指定裝置 → 依名稱在對應清單找;找不到(或未指定)→ 退平台預設(範圍#4)。
+        let cpal_device = match device.as_deref().and_then(|name| find_device_by_name(source, name)) {
+            Some(d) => d,
+            None => match pick_device(source) {
+                Ok(d) => d,
+                Err(e) => {
+                    let _ = ready_tx.send(Err(e.clone()));
+                    return Err(e);
+                }
+            },
         };
         let default_config = match source {
-            SourceKind::MicInternal | SourceKind::MeetingRoom => device.default_input_config(),
-            SourceKind::MeetingSystem => device.default_output_config(),
+            SourceKind::MicInternal | SourceKind::MeetingRoom => cpal_device.default_input_config(),
+            SourceKind::MeetingSystem => cpal_device.default_output_config(),
         };
         let default_config = match default_config {
             Ok(c) => c,
@@ -103,7 +118,7 @@ pub fn open_capture(
         let pending_cb = pending_for_thread.clone();
 
         let stream = match sample_format {
-            SampleFormat::F32 => device.build_input_stream(
+            SampleFormat::F32 => cpal_device.build_input_stream(
                 &config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     handle_chunk_f32(data, in_channels, resample_ratio, &writer_cb, &signal_cb, &chunker_cb, &tx_cb, &pending_cb);
@@ -117,7 +132,7 @@ pub fn open_capture(
                 let chunker_cb_i = chunker_cb.clone();
                 let tx_cb_i = tx_cb.clone();
                 let pending_cb_i = pending_cb.clone();
-                device.build_input_stream(
+                cpal_device.build_input_stream(
                     &config,
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
                         let f: Vec<f32> = data.iter().map(|&x| x as f32 / 32_768.0).collect();

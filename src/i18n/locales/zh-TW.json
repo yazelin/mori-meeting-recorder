@@ -63,6 +63,9 @@
     "mode_label": "會議型態",
     "mode_online": "線上會議",
     "mode_in_person": "現場會議",
+    "device_mic": "麥克風",
+    "device_system": "系統音訊來源",
+    "device_default": "預設",
     "room_pill": "現場",
     "source_room": "房間麥克風(預設輸入)"
   },

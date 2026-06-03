@@ -172,7 +172,8 @@ impl Recorder {
                 SourceKind::MeetingSystem => &self.sys_progress,
                 SourceKind::MicInternal | SourceKind::MeetingRoom => &self.mic_progress,
             };
-            match audio::open_capture(kind, out, vad_cfg.clone(), prog.pending.clone()) {
+            let device = audio::resolve_device(kind, &cfg);
+            match audio::open_capture(kind, device, out, vad_cfg.clone(), prog.pending.clone()) {
                 Ok((h, rx)) => {
                     // 前端 LiveTab 用 "sys"/"mic" 兩欄(不是 track_name 的 system/mic-internal)
                     let track = match kind {
@@ -414,8 +415,9 @@ impl Recorder {
             max_segment_secs: 60.0,
         };
         let dummy_pending = Arc::new(AtomicUsize::new(0));
+        let device = audio::resolve_device(SourceKind::MicInternal, &crate::config::read_config());
         let (handle, _rx) =
-            audio::open_capture(SourceKind::MicInternal, temp_path.clone(), vad_cfg, dummy_pending)?;
+            audio::open_capture(SourceKind::MicInternal, device, temp_path.clone(), vad_cfg, dummy_pending)?;
         *guard = Some(VoiceCapture { handle, temp_path });
         Ok(())
     }
@@ -473,8 +475,9 @@ impl Recorder {
             max_segment_secs: 120.0,
         };
         let dummy_pending = Arc::new(AtomicUsize::new(0));
+        let device = audio::resolve_device(SourceKind::MicInternal, &crate::config::read_config());
         let (handle, _rx) =
-            audio::open_capture(SourceKind::MicInternal, temp_path.clone(), vad_cfg, dummy_pending)?;
+            audio::open_capture(SourceKind::MicInternal, device, temp_path.clone(), vad_cfg, dummy_pending)?;
         *guard = Some(VoiceCapture { handle, temp_path });
         Ok(())
     }
