@@ -28,3 +28,4 @@ Observer Mode MVP:雙軌(`meeting_system` + `mic_internal`)→ 停止後 whisper
 - **單視窗切 size**:collapsed 360×60(膠囊),expanded 720×480(3-tab),`window.setSize` 在前後端切
 - **Tauri v2 auto-camelCase**:`event_id: String` Rust 對應 JS `eventId`
 - **共用驗證入口** — `bash scripts/verify.sh`:`cargo test` + `npm run build` + `cargo check`
+- **兩份 manifest 別混**:`agentos-manifest.json`(repo root)= **AgentOS** AppManifest v2(`kind: body-part`,`agentos install` 用,受 broker→audit 治理);`src-tauri/src/manifest.rs` 寫的是 **mori-desktop** BI-1 BodyManifest(`schema_version:1`,啟動 self-register 到 `~/.mori/body-parts/`)。不同 schema、不同 consumer。改其一不要順手改另一。AgentOS manifest 是純宣告 sidecar,**不影響 standalone 行為**。
