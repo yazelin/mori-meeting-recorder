@@ -206,6 +206,7 @@ fn spawn_server(args: &Args, port: u16) -> Result<Child, String> {
         });
     }
 
+    whisper_discovery::hide_console(&mut cmd); // Windows: 不要閃 console 黑窗
     cmd.spawn().map_err(|e| format!("spawn whisper-server: {e}"))
 }
 

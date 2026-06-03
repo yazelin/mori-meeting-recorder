@@ -55,9 +55,10 @@ pub fn list_supported_in_dir(dir: &Path) -> Result<Vec<PathBuf>, String> {
 
 /// ffmpeg 在 PATH 且可執行(`ffmpeg -version` exit 0)。deps 檢查用。
 pub fn ffmpeg_present() -> bool {
-    std::process::Command::new("ffmpeg")
-        .arg("-version")
-        .output()
+    let mut cmd = std::process::Command::new("ffmpeg");
+    cmd.arg("-version");
+    crate::whisper_discovery::hide_console(&mut cmd); // Windows: 不要閃 console 黑窗
+    cmd.output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
@@ -80,14 +81,16 @@ pub fn extract_wav_to_temp(input: &Path) -> Result<NamedTempFile, String> {
         .suffix(".wav")
         .tempfile()
         .map_err(|e| format!("create temp wav: {e}"))?;
-    let status = std::process::Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+    let mut cmd = std::process::Command::new("ffmpeg");
+    cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
         .arg(input)
         .args([
             "-vn", // 影片檔只拿音軌
             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", "-f", "wav",
         ])
-        .arg(tmp.path())
+        .arg(tmp.path());
+    crate::whisper_discovery::hide_console(&mut cmd); // Windows: 不要閃 console 黑窗
+    let status = cmd
         .status()
         .map_err(|e| format!("spawn ffmpeg — 確認系統有裝 ffmpeg: {e}"))?;
     if !status.success() {
