@@ -60,6 +60,7 @@
     "participants_ph": "有誰在場(一行一位或用逗號分隔)",
     "voice_input": "語音輸入",
     "voice_stop": "錄音中,點擊停止",
+    "mode_label": "會議型態",
     "mode_online": "線上會議",
     "mode_in_person": "現場會議",
     "room_pill": "現場",

@@ -152,7 +152,7 @@ export default function RecordTab() {
     <div>
       <div className="callout">⚠ {t("record.warning")}</div>
 
-      <div className="mode-switch" role="group" style={{ display: "flex", gap: 8, margin: "10px 0" }}>
+      <div className="mode-switch" role="group" aria-label={t("record.mode_label")} style={{ display: "flex", gap: 8, margin: "10px 0" }}>
         <button
           className={`mmr-btn${mode === "online" ? " primary" : ""}`}
           onClick={() => changeMode("online")}
