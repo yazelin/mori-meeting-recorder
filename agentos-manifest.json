@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "id": "mori.meeting-recorder",
+  "name": "Mori Meeting Recorder",
+  "kind": "body-part",
+  "version": "0.1.0",
+  "realm_mode": "personal",
+  "capabilities": ["audio.capture"],
+  "permissions": [
+    { "class": "audio.capture" }
+  ],
+  "data_policy": { "owns_raw_data": true, "default_ingestion": "off" },
+  "consumes": [
+    {
+      "skill": "transcribe.local",
+      "purpose": "會議逐字稿轉錄(standalone-first:本機 whisper 為主,偵測到共享服務才用)",
+      "optional": true
+    }
+  ],
+  "provides": [
+    {
+      "skill": "meeting.summarize",
+      "kind": "external",
+      "exportable": true
+    }
+  ]
+}
