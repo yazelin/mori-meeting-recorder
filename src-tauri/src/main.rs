@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod config;
+pub mod desktop_presence;
 pub mod diarize;
 pub mod exporter;
 pub mod file_transcribe;
@@ -885,8 +886,28 @@ async fn diarize_session(session_id: String) -> Result<postprocess::DiarizeSumma
     .map_err(|e| format!("join diarize_session: {e}"))?
 }
 
+/// 啟動旗標 —— 給前端查詢。no_tray 時前端會把膠囊自動展開(見 launched_no_tray)。
+struct LaunchFlags {
+    no_tray: bool,
+}
+
+/// 前端啟動時查:本次是否「無 tray」模式(被 desktop 帶 --no-tray、env、或偵測到 desktop 在跑)。
+/// 是 → 前端自動 set_window_mode("expanded")(決定 #3:藏 tray 時展開膠囊,不靠工作列)。
+#[tauri::command]
+fn launched_no_tray(flags: tauri::State<LaunchFlags>) -> bool {
+    flags.no_tray
+}
+
 #[allow(dead_code)]
 fn main() {
+    // BI-5 follow-up(雙向偵測 + 自適應 UI):被 mori-desktop 帶 `--no-tray`(或 env `MORI_NO_TRAY`)
+    // 啟動,或偵測到 mori-desktop(hub)正在執行時,就不長自己的 tray icon —— 由 desktop 的 tray
+    // 代表本部件,避免「兩個 tray 圖示」。standalone(沒 flag、沒 desktop)時行為完全不變。
+    // 以「正在執行(PID 活著)」判定 desktop,非「已安裝」,見 desktop_presence。
+    let no_tray = std::env::args().any(|a| a == "--no-tray")
+        || std::env::var("MORI_NO_TRAY").is_ok()
+        || desktop_presence::is_desktop_running();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -895,7 +916,9 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
+        .setup(move |app| {
+            // 啟動旗標交給前端(no_tray → 前端自動展開膠囊)。
+            app.manage(LaunchFlags { no_tray });
             // BI-1:啟動時寫 manifest 到 ~/.mori/body-parts/mori.meeting-recorder/manifest.json
             if let Err(e) = manifest::write_on_startup() {
                 eprintln!("write manifest: {e}");
@@ -904,39 +927,49 @@ fn main() {
             // (含非 Rust 的 `--ensure`)之後都找得到。背景做、不卡 startup、不卡 record-start hot path;
             // 無條件(不看當下有沒有 server 在跑),失敗不致命。契約 §11。
             std::thread::spawn(|| crate::whisper_discovery::install_shared_supervisor());
-            // Tray
-            let toggle = MenuItem::with_id(app, "toggle", "顯示 / 隱藏", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "結束", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle, &quit])?;
-            let _tray = TrayIconBuilder::new()
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "toggle" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            if w.is_visible().unwrap_or(false) {
-                                let _ = w.hide();
-                            } else {
-                                let _ = w.show();
-                                let _ = w.set_focus();
+            // Tray —— no_tray 時整段跳過(由 mori-desktop 的 tray 代表本部件,避免兩個 tray 圖示)。
+            if !no_tray {
+                let toggle = MenuItem::with_id(app, "toggle", "顯示 / 隱藏", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "結束", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&toggle, &quit])?;
+                let _tray = TrayIconBuilder::new()
+                    .menu(&menu)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "toggle" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                if w.is_visible().unwrap_or(false) {
+                                    let _ = w.hide();
+                                } else {
+                                    let _ = w.show();
+                                    let _ = w.set_focus();
+                                }
                             }
                         }
-                    }
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { .. } = event {
-                        if let Some(w) = tray.app_handle().get_webview_window("main") {
-                            if w.is_visible().unwrap_or(false) {
-                                let _ = w.hide();
-                            } else {
-                                let _ = w.show();
-                                let _ = w.set_focus();
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click { .. } = event {
+                            if let Some(w) = tray.app_handle().get_webview_window("main") {
+                                if w.is_visible().unwrap_or(false) {
+                                    let _ = w.hide();
+                                } else {
+                                    let _ = w.show();
+                                    let _ = w.set_focus();
+                                }
                             }
                         }
-                    }
-                })
-                .build(app)?;
+                    })
+                    .build(app)?;
+            } else {
+                // 沒有自己的 tray → 確保主視窗可見且在工作列(tauri.conf 的 main 已 skipTaskbar:false),
+                // 不會變孤兒;前端會把它展開成膠囊全貌(launched_no_tray → set_window_mode("expanded"))。
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.set_skip_taskbar(false);
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
 
             // 預先建好兩個浮動字幕視窗(hidden)。在 startup 建,避免「建完馬上 show」的 race
             // (build().visible(false) 後立刻 show 時 is_visible 還是 false,視窗沒真的出來)。
@@ -966,6 +999,7 @@ fn main() {
             download_progress,
             gpu_status,
             set_window_mode,
+            launched_no_tray,
             list_sessions,
             list_sessions_detailed,
             set_session_organized,
