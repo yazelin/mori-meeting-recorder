@@ -404,6 +404,19 @@ fn list_sessions_detailed() -> Vec<session_store::SessionSummary> {
     summaries
 }
 
+/// 手動標記某場「整理完成」狀態 → 寫該場獨立 session-state.json。
+#[tauri::command]
+fn set_session_organized(session_id: String, organized: bool) -> Result<(), String> {
+    let root = session_store::default_meetings_dir().join(&session_id);
+    session_store::write_organized(&root, organized)
+}
+
+/// 逐字稿內文全文搜尋,回命中的 session id 清單。
+#[tauri::command]
+fn search_sessions_fulltext(query: String) -> Vec<String> {
+    session_store::search_fulltext(&session_store::default_meetings_dir(), &query)
+}
+
 #[tauri::command]
 fn open_session_dir(session_id: String) -> Result<(), String> {
     let dir = session_store::default_meetings_dir().join(&session_id);
@@ -932,6 +945,8 @@ fn main() {
             set_window_mode,
             list_sessions,
             list_sessions_detailed,
+            set_session_organized,
+            search_sessions_fulltext,
             open_session_dir,
             diarize_session,
             // C1: diarization model management
