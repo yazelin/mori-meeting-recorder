@@ -13,10 +13,12 @@ export default function Select({
   value,
   options,
   onChange,
+  disabled = false,
 }: {
   value: string;
   options: SelectOption[];
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [hoverIdx, setHoverIdx] = useState(-1);
@@ -51,7 +53,7 @@ export default function Select({
 
   return (
     <div ref={wrapRef} className={`mmr-select ${open ? "open" : ""}`}>
-      <button type="button" className="mmr-select-trigger" onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="mmr-select-trigger" disabled={disabled} onClick={() => { if (!disabled) setOpen((o) => !o); }}>
         <span>{current ? current.label : "—"}</span>
         <span className="mmr-select-caret" aria-hidden>▾</span>
       </button>
