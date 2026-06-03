@@ -696,8 +696,8 @@ fn read_summary_md(session_id: String, kind: String) -> Option<String> {
 #[tauri::command]
 fn merge_speakers(session_id: String, keep_id: String, merge_ids: Vec<String>) -> Result<(), String> {
     let root = session_store::default_meetings_dir().join(&session_id);
-    for jsonl_rel in ["transcript/system.segments.jsonl", "transcript/mic-internal.segments.jsonl"] {
-        let path = root.join(jsonl_rel);
+    for (_n, jsonl_rel, _a) in postprocess::session_tracks(&root) {
+        let path = root.join(&jsonl_rel);
         let segs = transcribe::read_segments_jsonl(&path);
         if segs.is_empty() {
             continue;
@@ -718,12 +718,9 @@ fn merge_speakers(session_id: String, keep_id: String, merge_ids: Vec<String>) -
 #[tauri::command]
 fn set_segment_speaker(session_id: String, track: String, start_ms: u64, speaker_id: String) -> Result<(), String> {
     let root = session_store::default_meetings_dir().join(&session_id);
-    let jsonl_rel = match track.as_str() {
-        "system" => "transcript/system.segments.jsonl",
-        "mic-internal" => "transcript/mic-internal.segments.jsonl",
-        other => return Err(format!("unknown track: {other}")),
-    };
-    let path = root.join(jsonl_rel);
+    let jsonl_rel = postprocess::track_transcript_rel(&root, &track)
+        .ok_or_else(|| format!("unknown track: {track}"))?;
+    let path = root.join(&jsonl_rel);
     let segs = transcribe::read_segments_jsonl(&path);
     let relabeled = postprocess::relabel_one(segs, start_ms, &speaker_id);
     transcribe::write_segments_jsonl(&path, &relabeled)
@@ -733,12 +730,9 @@ fn set_segment_speaker(session_id: String, track: String, start_ms: u64, speaker
 #[tauri::command]
 fn set_segment_text(session_id: String, track: String, start_ms: u64, text: String) -> Result<(), String> {
     let root = session_store::default_meetings_dir().join(&session_id);
-    let jsonl_rel = match track.as_str() {
-        "system" => "transcript/system.segments.jsonl",
-        "mic-internal" => "transcript/mic-internal.segments.jsonl",
-        other => return Err(format!("unknown track: {other}")),
-    };
-    let path = root.join(jsonl_rel);
+    let jsonl_rel = postprocess::track_transcript_rel(&root, &track)
+        .ok_or_else(|| format!("unknown track: {track}"))?;
+    let path = root.join(&jsonl_rel);
     let segs = transcribe::read_segments_jsonl(&path);
     let relabeled = postprocess::relabel_text(segs, start_ms, &text);
     transcribe::write_segments_jsonl(&path, &relabeled)
@@ -749,12 +743,9 @@ fn set_segment_text(session_id: String, track: String, start_ms: u64, text: Stri
 #[tauri::command]
 fn set_segment_supplement(session_id: String, track: String, start_ms: u64, supplement: bool) -> Result<(), String> {
     let root = session_store::default_meetings_dir().join(&session_id);
-    let jsonl_rel = match track.as_str() {
-        "system" => "transcript/system.segments.jsonl",
-        "mic-internal" => "transcript/mic-internal.segments.jsonl",
-        other => return Err(format!("unknown track: {other}")),
-    };
-    let path = root.join(jsonl_rel);
+    let jsonl_rel = postprocess::track_transcript_rel(&root, &track)
+        .ok_or_else(|| format!("unknown track: {track}"))?;
+    let path = root.join(&jsonl_rel);
     let segs = transcribe::read_segments_jsonl(&path);
     let relabeled = postprocess::relabel_supplement(segs, start_ms, supplement);
     transcribe::write_segments_jsonl(&path, &relabeled)
