@@ -23,6 +23,9 @@ pub struct SessionMeta {
     pub diarize_seg_model: Option<String>,
     #[serde(default)]
     pub diarize_emb_model: Option<String>,
+    /// 錄音模式("online" / "in_person")。舊 timeline.json 無此欄 → serde default 空字串。
+    #[serde(default)]
+    pub recording_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +81,23 @@ pub fn export(
     }
     let timeline = serde_json::to_string_pretty(meta).map_err(|e| format!("timeline json: {e}"))?;
     Ok((public_md, internal_md, timeline))
+}
+
+/// 現場模式單檔匯出:room 軌(visibility=public)全部段 → 單一 meeting.md。
+/// 現場無「客戶 / 我方」之分 → 不產 public/internal、無補充區塊。回 (meeting_md, timeline_json)。
+pub fn export_single(
+    segments: &[Segment],
+    meta: &SessionMeta,
+    speakers: &[crate::diarize::SpeakerInfo],
+) -> Result<(String, String), String> {
+    let meeting_md = render_md(
+        segments,
+        "public",
+        &format!("# 會議記錄 — {}\n\n> 現場會議(單一收音來源)。\n\n", meta.started_at),
+        speakers,
+    );
+    let timeline = serde_json::to_string_pretty(meta).map_err(|e| format!("timeline json: {e}"))?;
+    Ok((meeting_md, timeline))
 }
 
 fn render_md(
@@ -154,6 +174,7 @@ mod tests {
             transcribe_model: "small".into(),
             diarize_seg_model: None,
             diarize_emb_model: None,
+            recording_mode: "in_person".into(),
         }
     }
 
@@ -325,5 +346,22 @@ mod tests {
             "internal.md should NOT contain supplement section when none flagged, got:\n{int_md}");
         assert!(!pub_md.contains("決議依據 / 內部補充"),
             "public.md should never contain supplement section, got:\n{pub_md}");
+    }
+
+    #[test]
+    fn export_single_room_segments_into_single_md() {
+        let mut s1 = seg("r1", "meeting_room", "public", 1000, "大家好");
+        s1.track = "room".into();
+        let mut s2 = seg("r2", "meeting_room", "public", 2000, "開始開會");
+        s2.track = "room".into();
+        let (meeting_md, timeline) = export_single(&[s1, s2], &meta("m"), &[]).unwrap();
+        assert!(meeting_md.contains("大家好"));
+        assert!(meeting_md.contains("開始開會"));
+        assert!(meeting_md.contains("會議記錄"));
+        // 不走 public/internal 分流 header
+        assert!(!meeting_md.contains("Mic-internal not included"));
+        let v: serde_json::Value = serde_json::from_str(&timeline).unwrap();
+        assert_eq!(v["session_id"], "m");
+        assert_eq!(v["recording_mode"], "in_person");
     }
 }

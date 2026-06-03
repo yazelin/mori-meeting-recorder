@@ -46,6 +46,10 @@ fn default_summary_ollama_model() -> String {
 fn default_summary_ollama_base_url() -> String {
     "http://localhost:11434".to_string()
 }
+fn default_recording_mode() -> String {
+    // "online" = 雙軌(系統 + 麥,visibility 分流);"in_person" = 單軌房間麥 → 單一 meeting.md。
+    "online".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RecorderConfig {
@@ -78,6 +82,8 @@ pub struct RecorderConfig {
     pub summary_ollama_base_url: String,
     #[serde(default)]
     pub summary_force_local_default: bool,
+    #[serde(default = "default_recording_mode")]
+    pub recording_mode: String,
 }
 
 impl Default for RecorderConfig {
@@ -97,6 +103,7 @@ impl Default for RecorderConfig {
             summary_ollama_model: default_summary_ollama_model(),
             summary_ollama_base_url: default_summary_ollama_base_url(),
             summary_force_local_default: false,
+            recording_mode: default_recording_mode(),
         }
     }
 }

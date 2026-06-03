@@ -598,6 +598,7 @@ fn build_internal_transcript(segments: &[Segment]) -> (String, usize) {
         let source_prefix = match s.source_kind.as_str() {
             "meeting_system" => "[系統]",
             "mic_internal" => "[麥克風]",
+            "meeting_room" => "[現場]",
             _ => "[未知]",
         };
         let supp = if s.supplement { "[決議依據]" } else { "" };

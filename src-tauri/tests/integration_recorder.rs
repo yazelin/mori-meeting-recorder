@@ -68,6 +68,7 @@ fn end_to_end_exporter_chain_writes_correct_files() {
         transcribe_model: "small".into(),
         diarize_seg_model: None,
         diarize_emb_model: None,
+        recording_mode: "online".into(),
     };
     let (pub_md, int_md, timeline) = export(&segs, &meta, &[]).unwrap();
     std::fs::write(store.public_md_path(), &pub_md).unwrap();

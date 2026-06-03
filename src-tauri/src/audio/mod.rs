@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 pub enum SourceKind {
     MeetingSystem,
     MicInternal,
+    MeetingRoom,
 }
 
 /// Segment / 匯出檔的 visibility。
@@ -27,6 +28,7 @@ impl SourceKind {
         match self {
             Self::MeetingSystem => Visibility::Public,
             Self::MicInternal => Visibility::Internal,
+            Self::MeetingRoom => Visibility::Public,
         }
     }
 
@@ -34,6 +36,7 @@ impl SourceKind {
         match self {
             Self::MeetingSystem => "meeting_system",
             Self::MicInternal => "mic_internal",
+            Self::MeetingRoom => "meeting_room",
         }
     }
 
@@ -41,6 +44,7 @@ impl SourceKind {
         match self {
             Self::MeetingSystem => "system",
             Self::MicInternal => "mic-internal",
+            Self::MeetingRoom => "room",
         }
     }
 }
@@ -124,4 +128,16 @@ pub fn open_capture(
     _pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<CaptureResult, String> {
     Err("only linux + windows supported in MVP".into())
+}
+
+#[cfg(test)]
+mod source_kind_tests {
+    use super::*;
+
+    #[test]
+    fn meeting_room_track_name_visibility_and_str() {
+        assert_eq!(SourceKind::MeetingRoom.track_name(), "room");
+        assert_eq!(SourceKind::MeetingRoom.as_str(), "meeting_room");
+        assert_eq!(SourceKind::MeetingRoom.default_visibility(), Visibility::Public);
+    }
 }

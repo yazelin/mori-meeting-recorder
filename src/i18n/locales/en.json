@@ -59,7 +59,12 @@
     "participants": "Participants",
     "participants_ph": "Who's here (one per line or comma-separated)",
     "voice_input": "Voice input",
-    "voice_stop": "Recording — click to stop"
+    "voice_stop": "Recording — click to stop",
+    "mode_label": "Meeting type",
+    "mode_online": "Online meeting",
+    "mode_in_person": "In-person meeting",
+    "room_pill": "Room",
+    "source_room": "Room mic (default input)"
   },
   "sessions": {
     "title": "Sessions",

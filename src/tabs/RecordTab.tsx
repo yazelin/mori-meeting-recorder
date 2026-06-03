@@ -40,6 +40,23 @@ export default function RecordTab() {
   const [participants, setParticipants] = useState("");
   const saveInfo = () => { invoke("set_meeting_info", { topic, participants }).catch(() => {}); };
 
+  const recState: RecState = status?.state ?? "idle";
+
+  const [mode, setMode] = useState<"online" | "in_person">("online");
+  useEffect(() => {
+    invoke<{ recording_mode?: string }>("get_config")
+      .then((c) => { if (c?.recording_mode === "in_person") setMode("in_person"); })
+      .catch(() => {});
+  }, []);
+  const changeMode = async (m: "online" | "in_person") => {
+    if (recState !== "idle" || m === mode) return; // 錄音中鎖住
+    try {
+      const cfg = await invoke<Record<string, unknown>>("get_config");
+      await invoke("set_config", { cfg: { ...cfg, recording_mode: m } });
+      setMode(m);
+    } catch (e) { console.error(e); }
+  };
+
   // 語音輸入:點 mic → 錄麥克風;再點 → whisper 轉錄、把文字接到欄位(append,可再打字修)。
   const [voiceField, setVoiceField] = useState<null | "topic" | "participants">(null);
   const toggleVoice = async (field: "topic" | "participants") => {
@@ -101,7 +118,6 @@ export default function RecordTab() {
     return () => { unlisten?.(); };
   }, []);
 
-  const recState: RecState = status?.state ?? "idle";
   const onStartStop = async () => {
     setErr(null);
     try {
@@ -136,6 +152,19 @@ export default function RecordTab() {
     <div>
       <div className="callout">⚠ {t("record.warning")}</div>
 
+      <div className="mode-switch" role="group" aria-label={t("record.mode_label")} style={{ display: "flex", gap: 8, margin: "10px 0" }}>
+        <button
+          className={`mmr-btn${mode === "online" ? " primary" : ""}`}
+          onClick={() => changeMode("online")}
+          disabled={recState !== "idle"}
+        >{t("record.mode_online")}</button>
+        <button
+          className={`mmr-btn${mode === "in_person" ? " primary" : ""}`}
+          onClick={() => changeMode("in_person")}
+          disabled={recState !== "idle"}
+        >{t("record.mode_in_person")}</button>
+      </div>
+
       <div className="record-control-bar">
         <span className="control-status">
           <span className={`control-dot ${recState}`} />
@@ -155,20 +184,32 @@ export default function RecordTab() {
         </button>
       </div>
 
-      <TrackPanel
-        kind="sys"
-        label={t("capsule.system_pill")}
-        sourceName={t("record.source_sys")}
-        level={levels?.sys ?? null}
-        progress={{ done: status?.sys_done ?? 0, pending: status?.sys_pending ?? 0 }}
-      />
-      <TrackPanel
-        kind="mic"
-        label={t("capsule.mic_pill")}
-        sourceName={t("record.source_mic")}
-        level={levels?.mic ?? null}
-        progress={{ done: status?.mic_done ?? 0, pending: status?.mic_pending ?? 0 }}
-      />
+      {mode === "in_person" ? (
+        <TrackPanel
+          kind="mic"
+          label={t("record.room_pill")}
+          sourceName={t("record.source_room")}
+          level={levels?.mic ?? null}
+          progress={{ done: status?.mic_done ?? 0, pending: status?.mic_pending ?? 0 }}
+        />
+      ) : (
+        <>
+          <TrackPanel
+            kind="sys"
+            label={t("capsule.system_pill")}
+            sourceName={t("record.source_sys")}
+            level={levels?.sys ?? null}
+            progress={{ done: status?.sys_done ?? 0, pending: status?.sys_pending ?? 0 }}
+          />
+          <TrackPanel
+            kind="mic"
+            label={t("capsule.mic_pill")}
+            sourceName={t("record.source_mic")}
+            level={levels?.mic ?? null}
+            progress={{ done: status?.mic_done ?? 0, pending: status?.mic_pending ?? 0 }}
+          />
+        </>
+      )}
 
       <div className="meeting-info">
         <div className="mi-field">

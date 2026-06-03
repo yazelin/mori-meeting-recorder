@@ -1,7 +1,7 @@
 //! Session lifecycle orchestrator。組合 audio::open_capture + SessionStore + transcribe + exporter。
 
 use crate::audio::{self, CaptureHandle, SourceKind};
-use crate::exporter::{export, Exports, SessionMeta, TrackMeta};
+use crate::exporter::{export, export_single, Exports, SessionMeta, TrackMeta};
 use crate::session_store::{default_meetings_dir, new_session_id, SessionStore};
 use crate::transcribe::{Segment};
 use tauri::Emitter;
@@ -26,6 +26,8 @@ pub struct ActiveSession {
     pub workers: Vec<crate::transcribe::TranscribeWorker>,
     /// 開錄當時的 whisper 模型(config.model),停止彙整時記進 timeline.json。
     pub transcribe_model: String,
+    /// 這場的錄音模式("online" / "in_person"),finalize 依此分流匯出。
+    pub recording_mode: String,
 }
 
 /// 語音輸入(主題/參與者快速口述)用的獨立麥克風 capture — 跟會議錄音無關,只寫 temp WAV。
@@ -111,6 +113,14 @@ pub struct RecorderStatus {
     pub mic_done: usize,
 }
 
+/// 依錄音模式回傳要開的音源清單。線上=系統+麥(雙軌);現場=單一房間麥。
+pub fn sources_for_mode(mode: &str) -> Vec<SourceKind> {
+    match mode {
+        "in_person" => vec![SourceKind::MeetingRoom],
+        _ => vec![SourceKind::MeetingSystem, SourceKind::MicInternal],
+    }
+}
+
 impl Recorder {
     pub fn start_session(&self, app: tauri::AppHandle) -> Result<String, String> {
         // **全域鎖序 active→state**(start/stop/status 一律先 active 後 state)防 AB-BA deadlock:
@@ -134,6 +144,7 @@ impl Recorder {
         let language = cfg.language.clone();
         let traditional = cfg.traditional;
         let transcribe_model = cfg.model.clone(); // 記下這場用的模型,停止時寫進 timeline.json
+        let recording_mode = cfg.recording_mode.clone();
         // engine=cli → 完全不碰 server。否則:確保有共享 server(沒有就 detached 拉起 supervisor,非阻塞),
         // worker 會在 warmup 期間每段重試 reachable_server() 直到接上(見 spawn_transcribe_worker)。
         // 啟動邏輯住共用模組 whisper_discovery::ensure_server —— 任何 app(含非 Rust 的 `--ensure`)共用同一條。
@@ -155,18 +166,18 @@ impl Recorder {
 
         let mut handles = Vec::new();
         let mut workers = Vec::new();
-        for kind in [SourceKind::MeetingSystem, SourceKind::MicInternal] {
+        for kind in sources_for_mode(&recording_mode) {
             let out = store.audio_path(kind);
             let prog = match kind {
                 SourceKind::MeetingSystem => &self.sys_progress,
-                SourceKind::MicInternal => &self.mic_progress,
+                SourceKind::MicInternal | SourceKind::MeetingRoom => &self.mic_progress,
             };
             match audio::open_capture(kind, out, vad_cfg.clone(), prog.pending.clone()) {
                 Ok((h, rx)) => {
                     // 前端 LiveTab 用 "sys"/"mic" 兩欄(不是 track_name 的 system/mic-internal)
                     let track = match kind {
                         SourceKind::MeetingSystem => "sys",
-                        SourceKind::MicInternal => "mic",
+                        SourceKind::MicInternal | SourceKind::MeetingRoom => "mic",
                     };
                     let jsonl = store.segments_path(kind);
                     let sid = session_id.clone();
@@ -206,6 +217,7 @@ impl Recorder {
             handles,
             workers,
             transcribe_model,
+            recording_mode,
         });
         *self.state.lock().map_err(|e| e.to_string())? = State::Recording;
 
@@ -282,38 +294,77 @@ impl Recorder {
         Ok(session_id)
     }
 
-    /// 背景收尾:join capture writer + worker(等佇列 drain 完)→ 讀回兩軌 jsonl 彙整 → 匯出三檔。
+    /// 背景收尾:join capture writer + worker(等佇列 drain 完)→ 依模式動態建軌 → 分流匯出。
     /// 不碰 `state`(由 stop_session 的背景執行緒在結束時統一設 Idle,確保出錯也會回 Idle)。
     fn finalize_session(&self, session: ActiveSession) -> Result<(), String> {
         let store = session.store;
         let started_at = session.started_at;
         let transcribe_model = session.transcribe_model;
+        let recording_mode = session.recording_mode;
         let session_id = store.session_id.clone();
 
-        // 1. capture thread flush VadChunker → 送最後段 → drop Sender。
+        // 1. capture thread flush；2. worker drain。
         for h in session.handles {
             let _ = h.writer_handle.join();
         }
-        // 2. Sender 已 drop → 各 worker recv() 收到 Err → loop 結束;join 等它把佇列剩餘段轉完。
         for w in session.workers {
             let _ = w.handle.join();
         }
-        // 3. 讀回兩軌 jsonl 彙整(jsonl 已由 worker 即時 append,不再 stop 時 batch 轉整檔)。
+
+        let stopped_at = Local::now();
+        let duration_secs = (stopped_at - started_at).num_seconds().max(0) as u64;
+
+        // 依模式讀軌 + 建 tracks + 匯出。
+        if recording_mode == "in_person" {
+            // 現場:單一 room 軌 → 單一 meeting.md。
+            let room_segs = crate::transcribe::read_segments_jsonl(
+                &store.segments_path(SourceKind::MeetingRoom),
+            );
+            let meta = SessionMeta {
+                schema_version: 1,
+                session_id: session_id.clone(),
+                started_at: started_at.to_rfc3339(),
+                stopped_at: stopped_at.to_rfc3339(),
+                duration_secs,
+                tracks: vec![TrackMeta {
+                    name: "room".into(),
+                    source_kind: "meeting_room".into(),
+                    visibility: "public".into(),
+                    audio_path: "audio/room.wav".into(),
+                    transcript_path: "transcript/room.segments.jsonl".into(),
+                    segment_count: room_segs.len(),
+                }],
+                exports: Exports {
+                    public: "meeting.md".into(),
+                    internal: String::new(),
+                },
+                transcribe_model,
+                diarize_seg_model: None,
+                diarize_emb_model: None,
+                recording_mode,
+            };
+            let (meeting_md, timeline) = export_single(&room_segs, &meta, &[])?;
+            std::fs::write(store.meeting_md_path(), meeting_md)
+                .map_err(|e| format!("write meeting.md: {e}"))?;
+            std::fs::write(store.timeline_path(), timeline)
+                .map_err(|e| format!("write timeline.json: {e}"))?;
+            return Ok(());
+        }
+
+        // 線上:雙軌 → public/internal 兩檔(行為與既有相同)。
         let sys_segs = crate::transcribe::read_segments_jsonl(
             &store.segments_path(SourceKind::MeetingSystem),
         );
         let mic_segs = crate::transcribe::read_segments_jsonl(
             &store.segments_path(SourceKind::MicInternal),
         );
-
-        let stopped_at = Local::now();
         let all_segs: Vec<Segment> = sys_segs.iter().chain(mic_segs.iter()).cloned().collect();
         let meta = SessionMeta {
             schema_version: 1,
             session_id: session_id.clone(),
             started_at: started_at.to_rfc3339(),
             stopped_at: stopped_at.to_rfc3339(),
-            duration_secs: (stopped_at - started_at).num_seconds().max(0) as u64,
+            duration_secs,
             tracks: vec![
                 TrackMeta {
                     name: "system".into(),
@@ -336,9 +387,10 @@ impl Recorder {
                 public: "meeting.public.md".into(),
                 internal: "meeting.internal.md".into(),
             },
-            transcribe_model,                 // 這場用的 whisper 模型
-            diarize_seg_model: None,          // 還沒分人(會後跑 diarize_session 才填)
+            transcribe_model,
+            diarize_seg_model: None,
             diarize_emb_model: None,
+            recording_mode,
         };
         let (pub_md, int_md, timeline) = export(&all_segs, &meta, &[])?;
         std::fs::write(store.public_md_path(), pub_md).map_err(|e| format!("write public.md: {e}"))?;
@@ -487,7 +539,7 @@ impl Recorder {
             let mic = s
                 .handles
                 .iter()
-                .find(|h| h.source == SourceKind::MicInternal)
+                .find(|h| h.source == SourceKind::MicInternal || h.source == SourceKind::MeetingRoom)
                 .map(|h| h.signal.lock().map(|sm| sm.has_signal(now_ms)).unwrap_or(false))
                 .unwrap_or(false);
             let sys_level = s.handles.iter()
@@ -495,7 +547,7 @@ impl Recorder {
                 .and_then(|h| h.signal.lock().ok().map(|sm| TrackLevel::from_signal_meter(&sm, now_ms)))
                 .unwrap_or(TrackLevel { peak_db: -120.0, rms_db: -120.0, signal: false });
             let mic_level = s.handles.iter()
-                .find(|h| h.source == SourceKind::MicInternal)
+                .find(|h| h.source == SourceKind::MicInternal || h.source == SourceKind::MeetingRoom)
                 .and_then(|h| h.signal.lock().ok().map(|sm| TrackLevel::from_signal_meter(&sm, now_ms)))
                 .unwrap_or(TrackLevel { peak_db: -120.0, rms_db: -120.0, signal: false });
             (elapsed, sys, mic, Some(s.store.session_id.clone()), Some(LevelsPayload { sys: sys_level, mic: mic_level }))
@@ -524,4 +576,23 @@ pub fn instance() -> Arc<Recorder> {
     RECORDER
         .get_or_init(|| Arc::new(Recorder::default()))
         .clone()
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    #[test]
+    fn sources_for_mode_picks_tracks() {
+        assert_eq!(
+            sources_for_mode("online"),
+            vec![SourceKind::MeetingSystem, SourceKind::MicInternal]
+        );
+        assert_eq!(sources_for_mode("in_person"), vec![SourceKind::MeetingRoom]);
+        // 未知字串 → 落 online 預設
+        assert_eq!(
+            sources_for_mode("bogus"),
+            vec![SourceKind::MeetingSystem, SourceKind::MicInternal]
+        );
+    }
 }

@@ -65,16 +65,36 @@ pub fn drop_speakers(list: Vec<SpeakerInfo>, drop_ids: &[String]) -> Vec<Speaker
     list.into_iter().filter(|s| !drop_ids.iter().any(|d| d == &s.id)).collect()
 }
 
+/// 從 timeline.json 的 SessionMeta.tracks 取本場實際軌;讀不到/空 → legacy 雙軌 fallback。
+/// 每項 = (track_name, transcript_rel, audio_rel)。
+pub fn session_tracks(session_root: &std::path::Path) -> Vec<(String, String, String)> {
+    if let Ok(s) = std::fs::read_to_string(session_root.join("timeline.json")) {
+        if let Ok(meta) = serde_json::from_str::<crate::exporter::SessionMeta>(&s) {
+            if !meta.tracks.is_empty() {
+                return meta.tracks.iter()
+                    .map(|t| (t.name.clone(), t.transcript_path.clone(), t.audio_path.clone()))
+                    .collect();
+            }
+        }
+    }
+    vec![
+        ("system".into(), "transcript/system.segments.jsonl".into(), "audio/system.wav".into()),
+        ("mic-internal".into(), "transcript/mic-internal.segments.jsonl".into(), "audio/mic-internal.wav".into()),
+    ]
+}
+
+/// 查某 track 的 transcript jsonl 相對路徑(給逐段校正命令用)。
+pub fn track_transcript_rel(session_root: &std::path::Path, track: &str) -> Option<String> {
+    session_tracks(session_root).into_iter().find(|(name, _, _)| name == track).map(|(_, j, _)| j)
+}
+
 /// 把標好的 segments 原子寫回各軌 jsonl + 寫 speakers.json。純檔案操作,可單測(不碰引擎/模型)。
 pub fn write_labeled_tracks(
     session_root: &std::path::Path,
     labeled: &[Segment],
     speakers: &[SpeakerInfo],
 ) -> Result<(), String> {
-    for (track, jsonl_rel) in [
-        ("system", "transcript/system.segments.jsonl"),
-        ("mic-internal", "transcript/mic-internal.segments.jsonl"),
-    ] {
+    for (track, jsonl_rel, _audio) in session_tracks(session_root) {
         let track_segs: Vec<Segment> =
             labeled.iter().filter(|s| s.track.as_str() == track).cloned().collect();
         if track_segs.is_empty() {
@@ -99,22 +119,10 @@ pub fn diarize_session_inner(
         return Err("diarization models not installed".to_string());
     }
 
-    // track_name() → "system" / "mic-internal" (matches SourceKind::track_name)
-    let tracks_meta: &[(&str, &str, &str)] = &[
-        (
-            "system",
-            "transcript/system.segments.jsonl",
-            "audio/system.wav",
-        ),
-        (
-            "mic-internal",
-            "transcript/mic-internal.segments.jsonl",
-            "audio/mic-internal.wav",
-        ),
-    ];
+    let tracks_meta = session_tracks(session_root);
 
     let mut tds: Vec<TrackDiarization> = Vec::new();
-    for (track, jsonl_rel, wav_rel) in tracks_meta {
+    for (track, jsonl_rel, wav_rel) in &tracks_meta {
         let jsonl = session_root.join(jsonl_rel);
         let wav = session_root.join(wav_rel);
         let segments = read_segments_jsonl(&jsonl);
@@ -169,20 +177,20 @@ fn stamp_diar_models(session_root: &std::path::Path) {
     }
 }
 
-/// 讀一場 session 兩軌 jsonl 合併(依 start_ms 排序),給工作區顯示。
+/// 讀一場 session 所有軌 jsonl 合併(依 start_ms 排序),給工作區顯示。
+/// 軌清單從 timeline.json 的 SessionMeta.tracks 推導;讀不到則 fallback legacy 雙軌。
 pub fn read_session_segments(session_root: &std::path::Path) -> Vec<crate::transcribe::Segment> {
-    let mut all = crate::transcribe::read_segments_jsonl(
-        &session_root.join("transcript/system.segments.jsonl"),
-    );
-    all.extend(crate::transcribe::read_segments_jsonl(
-        &session_root.join("transcript/mic-internal.segments.jsonl"),
-    ));
+    let mut all = Vec::new();
+    for (_track, jsonl_rel, _audio) in session_tracks(session_root) {
+        all.extend(crate::transcribe::read_segments_jsonl(&session_root.join(&jsonl_rel)));
+    }
     all.sort_by_key(|s| s.start_ms);
     all
 }
 
-/// 用目前 jsonl(已含 speaker)+ speakers.json 重新匯出 meeting.public/internal.md。
-/// meta 由 timeline.json 還原(就是序列化過的 SessionMeta)。
+/// 用目前 jsonl(已含 speaker)+ speakers.json 重新匯出。
+/// 若 recording_mode == "in_person" → 單一 meeting.md(不產 public/internal);
+/// 否則(online / legacy)→ meeting.public.md + meeting.internal.md。
 pub fn reexport_session(session_root: &std::path::Path) -> Result<(), String> {
     let segs = read_session_segments(session_root);
     let speakers = crate::diarize::read_speakers(
@@ -192,13 +200,21 @@ pub fn reexport_session(session_root: &std::path::Path) -> Result<(), String> {
         .map_err(|e| format!("read timeline.json: {e}"))?;
     let meta: crate::exporter::SessionMeta =
         serde_json::from_str(&meta_json).map_err(|e| format!("parse timeline.json: {e}"))?;
-    let (pub_md, int_md, timeline) = crate::exporter::export(&segs, &meta, &speakers)?;
-    std::fs::write(session_root.join("meeting.public.md"), pub_md)
-        .map_err(|e| format!("write public: {e}"))?;
-    std::fs::write(session_root.join("meeting.internal.md"), int_md)
-        .map_err(|e| format!("write internal: {e}"))?;
-    std::fs::write(session_root.join("timeline.json"), timeline)
-        .map_err(|e| format!("write timeline: {e}"))?;
+    if meta.recording_mode == "in_person" {
+        let (meeting_md, timeline) = crate::exporter::export_single(&segs, &meta, &speakers)?;
+        std::fs::write(session_root.join("meeting.md"), meeting_md)
+            .map_err(|e| format!("write meeting.md: {e}"))?;
+        std::fs::write(session_root.join("timeline.json"), timeline)
+            .map_err(|e| format!("write timeline: {e}"))?;
+    } else {
+        let (pub_md, int_md, timeline) = crate::exporter::export(&segs, &meta, &speakers)?;
+        std::fs::write(session_root.join("meeting.public.md"), pub_md)
+            .map_err(|e| format!("write public: {e}"))?;
+        std::fs::write(session_root.join("meeting.internal.md"), int_md)
+            .map_err(|e| format!("write internal: {e}"))?;
+        std::fs::write(session_root.join("timeline.json"), timeline)
+            .map_err(|e| format!("write timeline: {e}"))?;
+    }
     Ok(())
 }
 
@@ -218,8 +234,12 @@ fn identify_speakers(session_root: &std::path::Path, labeled: &[crate::transcrib
     let sp_path = session_root.join("transcript").join("speakers.json");
     let mut speakers = crate::diarize::read_speakers(&sp_path);
     let mut changed = false;
+    let tracks = session_tracks(session_root);
     for (spk_id, seg) in longest {
-        let wav_rel = if seg.track == "system" { "audio/system.wav" } else { "audio/mic-internal.wav" };
+        let wav_rel = tracks.iter()
+            .find(|(name, _, _)| name == &seg.track)
+            .map(|(_, _, a)| a.as_str())
+            .unwrap_or("audio/mic-internal.wav");
         let wav = session_root.join(wav_rel);
         let emb = match read_wav_slice_f32(&wav, seg.start_ms, seg.end_ms) {
             Some((s, sr)) => match crate::voiceprint::embed_samples(&s, sr) { Ok(e) => e, Err(_) => continue },
@@ -470,6 +490,7 @@ mod tests {
             transcribe_model: "small".into(),
             diarize_seg_model: None,
             diarize_emb_model: None,
+            recording_mode: "online".into(),
         };
         std::fs::write(
             root.join("timeline.json"),
@@ -557,5 +578,125 @@ mod tests {
         assert_eq!(segs.len(), 2);
         assert_eq!(segs[0].start_ms, 500, "first segment should be the mic-internal (earliest)");
         assert_eq!(segs[1].start_ms, 2000, "second segment should be the system (later)");
+    }
+
+    // ── TDD: session_tracks / reexport_session 現場模式 ─────────────────────────
+
+    fn make_in_person_timeline_json() -> String {
+        let meta = crate::exporter::SessionMeta {
+            schema_version: 1,
+            session_id: "ip-test".into(),
+            started_at: "2026-06-03T10:00:00+08:00".into(),
+            stopped_at: "2026-06-03T10:30:00+08:00".into(),
+            duration_secs: 1800,
+            tracks: vec![crate::exporter::TrackMeta {
+                name: "room".into(),
+                source_kind: "meeting_room".into(),
+                visibility: "public".into(),
+                audio_path: "audio/room.wav".into(),
+                transcript_path: "transcript/room.segments.jsonl".into(),
+                segment_count: 0,
+            }],
+            exports: crate::exporter::Exports {
+                public: "meeting.public.md".into(),
+                internal: "meeting.internal.md".into(),
+            },
+            transcribe_model: "small".into(),
+            diarize_seg_model: None,
+            diarize_emb_model: None,
+            recording_mode: "in_person".into(),
+        };
+        serde_json::to_string_pretty(&meta).unwrap()
+    }
+
+    /// session_tracks: in_person timeline → single ("room",...) tuple
+    #[test]
+    fn session_tracks_returns_room_for_in_person_timeline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("timeline.json"), make_in_person_timeline_json()).unwrap();
+
+        let tracks = session_tracks(root);
+        assert_eq!(tracks.len(), 1, "in_person should have exactly 1 track");
+        assert_eq!(tracks[0].0, "room");
+        assert_eq!(tracks[0].1, "transcript/room.segments.jsonl");
+        assert_eq!(tracks[0].2, "audio/room.wav");
+    }
+
+    /// session_tracks: no timeline.json → legacy dual-track fallback
+    #[test]
+    fn session_tracks_falls_back_to_legacy_when_no_timeline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        // no timeline.json written
+
+        let tracks = session_tracks(root);
+        assert_eq!(tracks.len(), 2, "should fall back to legacy 2-track");
+        assert!(tracks.iter().any(|(n, _, _)| n == "system"), "should have system track");
+        assert!(tracks.iter().any(|(n, _, _)| n == "mic-internal"), "should have mic-internal track");
+    }
+
+    /// reexport_session for in_person: writes meeting.md, does NOT write public/internal
+    #[test]
+    fn reexport_session_in_person_writes_single_meeting_md() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+
+        // transcript dir + room jsonl
+        let transcript_dir = root.join("transcript");
+        std::fs::create_dir_all(&transcript_dir).unwrap();
+
+        let room_seg1 = Segment {
+            id: "r1".into(),
+            session_id: "ip-test".into(),
+            track: "room".into(),
+            source_kind: "meeting_room".into(),
+            visibility: "public".into(),
+            start_ms: 1000,
+            end_ms: 2000,
+            text: "大家好,現場會議開始".into(),
+            is_final: true,
+            confidence: None,
+            speaker: None,
+            speaker_mixed: false,
+            supplement: false,
+        };
+        let room_seg2 = Segment {
+            id: "r2".into(),
+            session_id: "ip-test".into(),
+            track: "room".into(),
+            source_kind: "meeting_room".into(),
+            visibility: "public".into(),
+            start_ms: 3000,
+            end_ms: 4000,
+            text: "這是第二段".into(),
+            is_final: true,
+            confidence: None,
+            speaker: None,
+            speaker_mixed: false,
+            supplement: false,
+        };
+        let jsonl = format!(
+            "{}\n{}\n",
+            serde_json::to_string(&room_seg1).unwrap(),
+            serde_json::to_string(&room_seg2).unwrap(),
+        );
+        std::fs::write(transcript_dir.join("room.segments.jsonl"), &jsonl).unwrap();
+
+        // timeline.json with recording_mode=in_person and room track
+        std::fs::write(root.join("timeline.json"), make_in_person_timeline_json()).unwrap();
+
+        // act
+        reexport_session(root).unwrap();
+
+        // meeting.md should exist and contain segment text
+        let meeting_md = std::fs::read_to_string(root.join("meeting.md"))
+            .expect("meeting.md should exist for in_person mode");
+        assert!(meeting_md.contains("大家好,現場會議開始"), "meeting.md should contain first segment: {meeting_md}");
+        assert!(meeting_md.contains("這是第二段"), "meeting.md should contain second segment: {meeting_md}");
+
+        // public/internal should NOT be written
+        assert!(!root.join("meeting.public.md").exists(), "meeting.public.md must NOT exist for in_person mode");
+        assert!(!root.join("meeting.internal.md").exists(), "meeting.internal.md must NOT exist for in_person mode");
     }
 }

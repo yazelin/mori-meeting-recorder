@@ -39,6 +39,7 @@ impl SessionStore {
 
     pub fn public_md_path(&self) -> PathBuf { self.root.join("meeting.public.md") }
     pub fn internal_md_path(&self) -> PathBuf { self.root.join("meeting.internal.md") }
+    pub fn meeting_md_path(&self) -> PathBuf { self.root.join("meeting.md") }
     pub fn timeline_path(&self) -> PathBuf { self.root.join("timeline.json") }
 
     // ── 摘要產物(§4.3):跟逐字稿匯出檔並列,一眼可分。 ──
@@ -107,7 +108,13 @@ pub fn read_session_summary(id: &str, base: &std::path::Path) -> SessionSummary 
     let duration_secs = v.get("duration_secs").and_then(|x| x.as_u64()).unwrap_or(0);
 
     let (public_segs, internal_segs) = count_segments_by_visibility(&store.root);
-    let preview = read_public_md_preview(&store.public_md_path());
+    // 現場模式只產 meeting.md(無 public.md)→ 預覽改讀 meeting.md。
+    let recording_mode = v.get("recording_mode").and_then(|x| x.as_str()).unwrap_or("online");
+    let preview = if recording_mode == "in_person" {
+        read_public_md_preview(&store.meeting_md_path())
+    } else {
+        read_public_md_preview(&store.public_md_path())
+    };
 
     SessionSummary {
         id: id.to_string(),
