@@ -50,10 +50,10 @@ export default function RecordTab() {
   }, []);
   const changeMode = async (m: "online" | "in_person") => {
     if (recState !== "idle" || m === mode) return; // 錄音中鎖住
-    setMode(m);
     try {
       const cfg = await invoke<Record<string, unknown>>("get_config");
       await invoke("set_config", { cfg: { ...cfg, recording_mode: m } });
+      setMode(m);
     } catch (e) { console.error(e); }
   };
 
