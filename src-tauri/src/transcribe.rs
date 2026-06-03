@@ -307,19 +307,19 @@ fn run_whisper_cli(wav: &Path, session_id: &str, kind: SourceKind, language: &st
         eprintln!("whisper deps missing — skipping transcribe");
         return vec![];
     }
-    let output = match Command::new(&bin)
-        .args([
-            "-m",
-            &model.to_string_lossy(),
-            "-f",
-            &wav.to_string_lossy(),
-            "-l",
-            language,
-            "--output-json-full",
-            "--no-prints",
-        ])
-        .output()
-    {
+    let mut cmd = Command::new(&bin);
+    cmd.args([
+        "-m",
+        &model.to_string_lossy(),
+        "-f",
+        &wav.to_string_lossy(),
+        "-l",
+        language,
+        "--output-json-full",
+        "--no-prints",
+    ]);
+    crate::whisper_discovery::hide_console(&mut cmd); // Windows: 不要閃 console 黑窗
+    let output = match cmd.output() {
         Ok(o) => o,
         Err(e) => {
             eprintln!("spawn whisper-cli: {e}");

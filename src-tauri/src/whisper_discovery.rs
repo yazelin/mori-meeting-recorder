@@ -284,6 +284,20 @@ pub fn close_inherited_fds() {
     }
 }
 
+/// Windows:讓 spawn 出來的子程序不彈出 console 黑窗(`CREATE_NO_WINDOW`);其他平台 no-op。
+/// whisper-server / whisper-cli / ffmpeg 等 console 子程序都要套,否則錄音 / 轉錄一啟動就閃一下黑窗
+/// (app 本體是 `windows_subsystem = "windows"` 沒事,但 spawn 的 console 子程序預設會給新 console)。
+pub fn hide_console(cmd: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
+}
+
 /// detached spawn supervisor —— **裸呼叫(無 `--ensure`)= supervise 主迴圈**(契約 §11)。
 /// **Linux**:`setsid`(自成 session,呼叫者關掉也不連帶收掉它)+ close 繼承 fd(防 single-instance
 /// socket 洩漏)。**Windows**:`DETACHED_PROCESS`。**其他平台(含 macOS)目前不 detach**,照常 spawn
