@@ -50,6 +50,12 @@ fn default_recording_mode() -> String {
     // "online" = 雙軌(系統 + 麥,visibility 分流);"in_person" = 單軌房間麥 → 單一 meeting.md。
     "online".to_string()
 }
+fn default_input_device() -> String {
+    String::new() // "" = 系統預設輸入
+}
+fn default_system_source() -> String {
+    String::new() // "" = 自動挑 default sink 的 .monitor
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RecorderConfig {
@@ -84,6 +90,10 @@ pub struct RecorderConfig {
     pub summary_force_local_default: bool,
     #[serde(default = "default_recording_mode")]
     pub recording_mode: String,
+    #[serde(default = "default_input_device")]
+    pub input_device: String,
+    #[serde(default = "default_system_source")]
+    pub system_source: String,
 }
 
 impl Default for RecorderConfig {
@@ -104,6 +114,8 @@ impl Default for RecorderConfig {
             summary_ollama_base_url: default_summary_ollama_base_url(),
             summary_force_local_default: false,
             recording_mode: default_recording_mode(),
+            input_device: default_input_device(),
+            system_source: default_system_source(),
         }
     }
 }
