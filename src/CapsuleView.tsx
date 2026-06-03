@@ -67,6 +67,11 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
     try { await invoke("set_captions", { visible: next }); } catch { /* ignore */ }
   };
 
+  // 結束整個 app — 膠囊也能關(不用先展開)。用 ExpandedView 同一個 quit_app 命令。
+  const quitApp = async () => {
+    try { await invoke("quit_app"); } catch { /* ignore */ }
+  };
+
   const recState = status?.state ?? "idle";
   const dotClass = `capsule-dot ${recState}`;
   const statusLabel = recState === "recording" ? "REC" : recState === "transcribing" ? t("capsule.transcribing") : "idle";
@@ -95,6 +100,7 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
       <button className="icon-btn" onClick={onExpand} title={t("capsule.expand")}>
         <ChevronDownIcon size={12} />
       </button>
+      <button className="icon-btn" onClick={quitApp} title="結束 / quit">✕</button>
     </div>
   );
 }
