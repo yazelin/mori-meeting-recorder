@@ -97,6 +97,8 @@ export default function SessionsTab() {
         <div style={{ color: "var(--text-dim)" }}>讀取中…</div>
       ) : summaries.length === 0 ? (
         <div style={{ color: "var(--text-dim)" }}>{t("sessions.empty")}</div>
+      ) : visible.length === 0 ? (
+        <div style={{ color: "var(--text-dim)" }}>無符合的會議</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column" }}>
           {visible.map((s) => (
