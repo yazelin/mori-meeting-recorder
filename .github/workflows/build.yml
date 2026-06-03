@@ -1,0 +1,78 @@
+name: build
+
+on:
+  pull_request:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # actions/* 的 JS runtime 提前 opt-in Node 24(GitHub 2026-09-16 移除 Node 20),
+  # 免得屆時靜默炸掉 + 消 deprecation annotation。對齊 mori-ear build.yml。
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+# PR / 手動 → 只 build(驗 Tauri bundle 出得來);推 v* tag → build + 發 GitHub Release。
+# 同一個 job:tauri-action 在有 tagName 時才建 release,否則只 build。
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: windows-x86_64
+            os: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Tauri 2 + 本專案的系統依賴(Linux):webkit/gtk/appindicator/rsvg/patchelf
+      # + audio(libpulse client、alsa)。Windows 不需(cpal WASAPI 走系統 SDK)。
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            patchelf \
+            libayatana-appindicator3-dev \
+            libxdo-dev \
+            libasound2-dev \
+            libpulse-dev
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # tauri-action 會跑 beforeBuildCommand(npm run build)+ tauri build,
+      # 產 targets="all" 的 bundle(Linux: deb/rpm/AppImage,Windows: msi/nsis)。
+      # tagName 非空(= 推了 v* tag)才建 Release;PR/手動時為空 → 只 build 不發。
+      - name: Build (and release on tag)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: "Mori Meeting Recorder ${{ github.ref_name }}"
+          releaseBody: "見 commit log。Linux: .deb/.AppImage;Windows: .msi/.exe。轉錄/摘要需自備 whisper + ffmpeg(見 README)。"
+          releaseDraft: false
+          prerelease: false
