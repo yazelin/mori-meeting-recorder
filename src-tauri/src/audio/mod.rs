@@ -50,6 +50,20 @@ impl SourceKind {
     }
 }
 
+/// 依 source + config 算出要開的裝置名;None = 用平台預設
+/// (麥=系統預設輸入、系統=auto-monitor)。麥/room 看 input_device,系統看 system_source。
+pub fn resolve_device(source: SourceKind, cfg: &crate::config::RecorderConfig) -> Option<String> {
+    let pick = match source {
+        SourceKind::MicInternal | SourceKind::MeetingRoom => &cfg.input_device,
+        SourceKind::MeetingSystem => &cfg.system_source,
+    };
+    if pick.trim().is_empty() {
+        None
+    } else {
+        Some(pick.clone())
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "windows")]
@@ -140,5 +154,29 @@ mod source_kind_tests {
         assert_eq!(SourceKind::MeetingRoom.track_name(), "room");
         assert_eq!(SourceKind::MeetingRoom.as_str(), "meeting_room");
         assert_eq!(SourceKind::MeetingRoom.default_visibility(), Visibility::Public);
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+    use crate::config::RecorderConfig;
+
+    #[test]
+    fn resolve_device_maps_source_to_config_field() {
+        let mut cfg = RecorderConfig::default();
+        // 預設(空)→ None
+        assert_eq!(resolve_device(SourceKind::MicInternal, &cfg), None);
+        assert_eq!(resolve_device(SourceKind::MeetingRoom, &cfg), None);
+        assert_eq!(resolve_device(SourceKind::MeetingSystem, &cfg), None);
+        // 有值 → Some
+        cfg.input_device = "mic-x".into();
+        cfg.system_source = "monitor-y".into();
+        assert_eq!(resolve_device(SourceKind::MicInternal, &cfg), Some("mic-x".into()));
+        assert_eq!(resolve_device(SourceKind::MeetingRoom, &cfg), Some("mic-x".into()));
+        assert_eq!(resolve_device(SourceKind::MeetingSystem, &cfg), Some("monitor-y".into()));
+        // 空白字串視為未選
+        cfg.input_device = "   ".into();
+        assert_eq!(resolve_device(SourceKind::MicInternal, &cfg), None);
     }
 }
