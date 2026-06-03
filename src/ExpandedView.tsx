@@ -64,6 +64,11 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
     try { await invoke("set_captions", { visible: next }); } catch { /* ignore */ }
   };
 
+  // 結束整個 app(frameless 視窗沒有標題列 X,tray 又容易在 Windows 被收進「^」找不到)。
+  const quitApp = async () => {
+    try { await invoke("quit_app"); } catch { /* ignore */ }
+  };
+
   return (
     <div id="view-expanded" style={{ height: "100vh", display: "flex", flexDirection: "column", position: "relative" }}>
       {/* Resize handles — frameless window has no WM edges; Tauri 2 startResizeDragging adds them back */}
@@ -130,6 +135,7 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
           title={captionsVisible ? "hide caption windows" : "show caption windows"}
         >CC</button>
         <button className="icon-btn" onClick={onCollapse} title="collapse">▴</button>
+        <button className="icon-btn" onClick={quitApp} title="結束 / quit">✕</button>
       </div>
       <div className="expanded-body" style={{ flex: 1 }}>
         {tab === "record" && <RecordTab />}

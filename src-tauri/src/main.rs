@@ -60,6 +60,13 @@ fn recorder_status() -> RecorderStatus {
     recorder_instance().status()
 }
 
+/// 從視窗結束鈕退出整個 app(等同 tray「結束」)。frameless 視窗沒有標題列 X,
+/// 前端結束鈕走這個 → app.exit(0) 真正退出(不只關主視窗 —— 隱藏的字幕視窗會讓 app 殘留在背景)。
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[tauri::command]
 fn deps_check() -> DepsCheck {
     let bin = transcribe::whisper_bin_path();
@@ -942,6 +949,7 @@ fn main() {
             recorder_start,
             recorder_stop,
             recorder_status,
+            quit_app,
             deps_check,
             file_transcribe_one,
             file_transcribe_save_txt,
