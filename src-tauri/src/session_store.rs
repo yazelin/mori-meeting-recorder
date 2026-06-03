@@ -70,6 +70,10 @@ pub struct SessionSummary {
     pub public_segs: u32,
     pub internal_segs: u32,
     pub preview: Option<String>,
+    #[serde(default)]
+    pub topic: String,
+    #[serde(default)]
+    pub organized: bool,
     pub corrupt: bool,
 }
 
@@ -86,6 +90,8 @@ pub fn read_session_summary(id: &str, base: &std::path::Path) -> SessionSummary 
                 public_segs: 0,
                 internal_segs: 0,
                 preview: None,
+                topic: String::new(),
+                organized: false,
                 corrupt: true,
             };
         }
@@ -100,6 +106,8 @@ pub fn read_session_summary(id: &str, base: &std::path::Path) -> SessionSummary 
                 public_segs: 0,
                 internal_segs: 0,
                 preview: None,
+                topic: String::new(),
+                organized: false,
                 corrupt: true,
             };
         }
@@ -116,6 +124,17 @@ pub fn read_session_summary(id: &str, base: &std::path::Path) -> SessionSummary 
         read_public_md_preview(&store.public_md_path())
     };
 
+    let topic = std::fs::read_to_string(store.root.join("meeting-info.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("topic").and_then(|x| x.as_str()).map(|s| s.to_string()))
+        .unwrap_or_default();
+    let organized = std::fs::read_to_string(store.root.join("session-state.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("organized").and_then(|x| x.as_bool()))
+        .unwrap_or(false);
+
     SessionSummary {
         id: id.to_string(),
         started_at,
@@ -123,6 +142,8 @@ pub fn read_session_summary(id: &str, base: &std::path::Path) -> SessionSummary 
         public_segs,
         internal_segs,
         preview,
+        topic,
+        organized,
         corrupt: false,
     }
 }
@@ -274,5 +295,36 @@ mod tests {
         let s = read_session_summary("m", tmp.path());
         assert!(!s.corrupt);
         assert_eq!(s.preview, None);
+    }
+
+    #[test]
+    fn read_session_summary_includes_topic_and_organized() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let root = base.join("meeting-x");
+        std::fs::create_dir_all(root.join("transcript")).unwrap();
+        std::fs::write(root.join("timeline.json"),
+            r#"{"schema_version":1,"session_id":"meeting-x","started_at":"2026-06-03T10:00:00+08:00","stopped_at":"t","duration_secs":60,"tracks":[],"exports":{"public":"","internal":""}}"#).unwrap();
+        std::fs::write(root.join("meeting-info.json"), r#"{"topic":"季度檢討","participants":"甲,乙"}"#).unwrap();
+        std::fs::write(root.join("session-state.json"), r#"{"organized":true}"#).unwrap();
+
+        let s = read_session_summary("meeting-x", base);
+        assert_eq!(s.topic, "季度檢討");
+        assert!(s.organized);
+        assert!(!s.corrupt);
+    }
+
+    #[test]
+    fn read_session_summary_defaults_when_info_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let root = base.join("meeting-y");
+        std::fs::create_dir_all(root.join("transcript")).unwrap();
+        std::fs::write(root.join("timeline.json"),
+            r#"{"schema_version":1,"session_id":"meeting-y","started_at":"t","stopped_at":"t","duration_secs":1,"tracks":[],"exports":{"public":"","internal":""}}"#).unwrap();
+        // 無 meeting-info.json / session-state.json
+        let s = read_session_summary("meeting-y", base);
+        assert_eq!(s.topic, "");
+        assert!(!s.organized);
     }
 }
