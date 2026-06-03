@@ -118,26 +118,29 @@ pub type CaptureResult = (CaptureHandle, std::sync::mpsc::Receiver<vad::SpeechSe
 #[cfg(target_os = "linux")]
 pub fn open_capture(
     source: SourceKind,
+    device: Option<String>,
     out_path: std::path::PathBuf,
     vad_cfg: vad::VadConfig,
     pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<CaptureResult, String> {
-    linux::open_capture(source, out_path, vad_cfg, pending)
+    linux::open_capture(source, device, out_path, vad_cfg, pending)
 }
 
 #[cfg(target_os = "windows")]
 pub fn open_capture(
     source: SourceKind,
+    device: Option<String>,
     out_path: std::path::PathBuf,
     vad_cfg: vad::VadConfig,
     pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<CaptureResult, String> {
-    windows::open_capture(source, out_path, vad_cfg, pending)
+    windows::open_capture(source, device, out_path, vad_cfg, pending)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub fn open_capture(
     _source: SourceKind,
+    _device: Option<String>,
     _out_path: std::path::PathBuf,
     _vad_cfg: vad::VadConfig,
     _pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,

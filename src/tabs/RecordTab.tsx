@@ -57,6 +57,29 @@ export default function RecordTab() {
     } catch (e) { console.error(e); }
   };
 
+  // #83 收音裝置選擇:開分頁列舉裝置 + 載入已選 + 寫回 config(現場 1 麥 / 線上 系統源+麥)。
+  type DeviceInfo = { id: string; label: string };
+  const [inputs, setInputs] = useState<DeviceInfo[]>([]);
+  const [systemSources, setSystemSources] = useState<DeviceInfo[]>([]);
+  const [inputDevice, setInputDevice] = useState("");
+  const [systemSource, setSystemSource] = useState("");
+  useEffect(() => {
+    invoke<{ inputs: DeviceInfo[]; system_sources: DeviceInfo[] }>("list_audio_devices")
+      .then((d) => { setInputs(d.inputs ?? []); setSystemSources(d.system_sources ?? []); })
+      .catch(() => {});
+    invoke<{ input_device?: string; system_source?: string }>("get_config")
+      .then((c) => { setInputDevice(c?.input_device ?? ""); setSystemSource(c?.system_source ?? ""); })
+      .catch(() => {});
+  }, []);
+  const persistDevice = async (patch: { input_device?: string; system_source?: string }) => {
+    try {
+      const cfg = await invoke<Record<string, unknown>>("get_config");
+      await invoke("set_config", { cfg: { ...cfg, ...patch } });
+    } catch (e) { console.error(e); }
+  };
+  const onInputDevice = (v: string) => { setInputDevice(v); persistDevice({ input_device: v }); };
+  const onSystemSource = (v: string) => { setSystemSource(v); persistDevice({ system_source: v }); };
+
   // 語音輸入:點 mic → 錄麥克風;再點 → whisper 轉錄、把文字接到欄位(append,可再打字修)。
   const [voiceField, setVoiceField] = useState<null | "topic" | "participants">(null);
   const toggleVoice = async (field: "topic" | "participants") => {
@@ -163,6 +186,35 @@ export default function RecordTab() {
           onClick={() => changeMode("in_person")}
           disabled={recState !== "idle"}
         >{t("record.mode_in_person")}</button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "0 0 10px" }}>
+        {mode === "online" && (
+          <label style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+            {t("record.device_system")}
+            <select
+              value={systemSource}
+              onChange={(e) => onSystemSource(e.target.value)}
+              disabled={recState !== "idle"}
+              style={{ width: "100%", marginTop: 2 }}
+            >
+              <option value="">{t("record.device_default")}</option>
+              {systemSources.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+            </select>
+          </label>
+        )}
+        <label style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+          {t("record.device_mic")}
+          <select
+            value={inputDevice}
+            onChange={(e) => onInputDevice(e.target.value)}
+            disabled={recState !== "idle"}
+            style={{ width: "100%", marginTop: 2 }}
+          >
+            <option value="">{t("record.device_default")}</option>
+            {inputs.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+          </select>
+        </label>
       </div>
 
       <div className="record-control-bar">
