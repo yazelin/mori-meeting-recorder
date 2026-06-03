@@ -16,6 +16,10 @@ interface RecorderConfig {
   language: string;
   traditional: boolean;
   model: string;
+  summary_groq_model: string;
+  summary_ollama_model: string;
+  summary_ollama_base_url: string;
+  summary_force_local_default: boolean;
 }
 
 const DEFAULTS: RecorderConfig = {
@@ -26,12 +30,31 @@ const DEFAULTS: RecorderConfig = {
   language: "zh",
   traditional: true,
   model: "small",
+  summary_groq_model: "openai/gpt-oss-120b",
+  summary_ollama_model: "qwen3:4b-instruct-2507-q4_K_M",
+  summary_ollama_base_url: "http://localhost:11434",
+  summary_force_local_default: false,
 };
 
 export default function SettingsTab() {
   const { t } = useTranslation();
   const [cfg, setCfg] = useState<RecorderConfig>(DEFAULTS);
   const [saved, setSaved] = useState(false);
+  const [keySet, setKeySet] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const [keySaved, setKeySaved] = useState(false);
+  useEffect(() => {
+    invoke<boolean>("groq_key_status").then(setKeySet).catch(() => setKeySet(false));
+  }, []);
+  const saveKey = async () => {
+    try {
+      await invoke("set_groq_api_key", { key: keyInput });
+      setKeySet(keyInput.trim() !== "");
+      setKeyInput("");
+      setKeySaved(true);
+      setTimeout(() => setKeySaved(false), 2000);
+    } catch (e) { console.error(e); }
+  };
 
   useEffect(() => {
     invoke<RecorderConfig>("get_config").then(setCfg).catch(() => setCfg(DEFAULTS));
@@ -121,6 +144,53 @@ export default function SettingsTab() {
         value={cfg.max_segment_secs} step={1}
         onChange={(v) => setCfg({ ...cfg, max_segment_secs: v })}
       />
+      <h4>{t("settings.summary_section")}</h4>
+      <div className="setting-field">
+        <div className="setting-field-row">
+          <span className="setting-field-label">{t("settings.summary_groq_model")}</span>
+          <input className="setting-field-input" type="text" value={cfg.summary_groq_model}
+            onChange={(e) => setCfg({ ...cfg, summary_groq_model: e.target.value })} />
+        </div>
+      </div>
+      <div className="setting-field">
+        <div className="setting-field-row">
+          <span className="setting-field-label">{t("settings.summary_ollama_model")}</span>
+          <input className="setting-field-input" type="text" value={cfg.summary_ollama_model}
+            onChange={(e) => setCfg({ ...cfg, summary_ollama_model: e.target.value })} />
+        </div>
+      </div>
+      <div className="setting-field">
+        <div className="setting-field-row">
+          <span className="setting-field-label">{t("settings.summary_ollama_base_url")}</span>
+          <input className="setting-field-input" type="text" value={cfg.summary_ollama_base_url}
+            onChange={(e) => setCfg({ ...cfg, summary_ollama_base_url: e.target.value })} />
+        </div>
+      </div>
+      <div className="setting-field">
+        <div className="setting-field-row">
+          <span className="setting-field-label">{t("settings.summary_force_local")}</span>
+          <input type="checkbox" className="setting-field-checkbox"
+            checked={cfg.summary_force_local_default}
+            onChange={(e) => setCfg({ ...cfg, summary_force_local_default: e.target.checked })} />
+        </div>
+        <div className="setting-field-hint">{t("settings.summary_force_local_hint")}</div>
+      </div>
+      <div className="setting-field">
+        <div className="setting-field-row">
+          <span className="setting-field-label">{t("settings.groq_api_key")}</span>
+          <span style={{ fontSize: 11, color: keySet ? "var(--found-color)" : "var(--text-dim)" }}>
+            {keySet ? t("settings.groq_key_set") : t("settings.groq_key_unset")}
+          </span>
+        </div>
+        <div className="setting-field-row" style={{ gap: 8, marginTop: 4 }}>
+          <input className="setting-field-input" type="password" value={keyInput}
+            placeholder={keySet ? "••••••" : "gsk_..."}
+            onChange={(e) => setKeyInput(e.target.value)} style={{ flex: 1 }} />
+          <button className="mmr-btn" onClick={saveKey} disabled={keyInput.trim() === ""}>{t("settings.save_key")}</button>
+          {keySaved && <span style={{ color: "var(--found-color)", fontSize: 11 }}>{t("settings.key_saved")}</span>}
+        </div>
+        <div className="setting-field-hint">{t("settings.groq_key_hint")}</div>
+      </div>
       <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center" }}>
         <button className="mmr-btn" onClick={() => setCfg(DEFAULTS)}>{t("settings.reset")}</button>
         <button className="mmr-btn primary" onClick={save}>{t("settings.save")}</button>
