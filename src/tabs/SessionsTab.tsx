@@ -11,6 +11,8 @@ interface SessionSummary {
   public_segs: number;
   internal_segs: number;
   preview: string | null;
+  topic: string;
+  organized: boolean;
   corrupt: boolean;
 }
 

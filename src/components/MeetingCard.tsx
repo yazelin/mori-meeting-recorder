@@ -12,6 +12,8 @@ interface SessionSummary {
   public_segs: number;
   internal_segs: number;
   preview: string | null;
+  topic: string;
+  organized: boolean;
   corrupt: boolean;
 }
 
@@ -19,6 +21,7 @@ interface Props {
   summary: SessionSummary;
   onOpen: (id: string) => void;
   onWorkspace?: (id: string) => void;
+  onToggleOrganized?: (id: string, next: boolean) => void;
 }
 
 function fmtStartedAt(iso: string): string {
@@ -43,7 +46,7 @@ function fmtDuration(secs: number): string {
   return `${s}s`;
 }
 
-export default function MeetingCard({ summary, onOpen, onWorkspace }: Props) {
+export default function MeetingCard({ summary, onOpen, onWorkspace, onToggleOrganized }: Props) {
   if (summary.corrupt) {
     return (
       <div className="meeting-card corrupt" onClick={(e) => e.stopPropagation()}>
@@ -66,6 +69,7 @@ export default function MeetingCard({ summary, onOpen, onWorkspace }: Props) {
     <div className="meeting-card" onClick={onWorkspace ? () => onWorkspace(summary.id) : open}>
       <div className="mc-body">
         <span className="mc-id">{summary.id}</span>
+        {summary.topic && <span className="mc-topic" style={{ fontWeight: 600 }}>{summary.topic}</span>}
         <span className="mc-subtitle">
           {fmtStartedAt(summary.started_at)} · {fmtDuration(summary.duration_secs)}
         </span>
@@ -87,6 +91,18 @@ export default function MeetingCard({ summary, onOpen, onWorkspace }: Props) {
             onClick={openWorkspace}
             title="整理工作區"
           >整理</button>
+        )}
+        <span
+          className={`mmr-pill ${summary.organized ? "on" : ""}`}
+          style={{ fontSize: 10, padding: "2px 6px", color: summary.organized ? "var(--found-color)" : "var(--text-dim)" }}
+        >{summary.organized ? "已整理 ✓" : "未整理"}</span>
+        {onToggleOrganized && (
+          <button
+            className="mmr-btn"
+            style={{ fontSize: 10.5, padding: "2px 6px" }}
+            onClick={(e) => { e.stopPropagation(); onToggleOrganized(summary.id, !summary.organized); }}
+            title={summary.organized ? "取消整理完成標記" : "標記整理完成"}
+          >{summary.organized ? "取消" : "標記完成"}</button>
         )}
         <button
           className="mc-open"
