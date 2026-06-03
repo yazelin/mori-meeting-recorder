@@ -709,6 +709,21 @@ fn read_summary_md(session_id: String, kind: String) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
+/// 共享 ~/.mori/config.json 是否已設 Groq API key(給 Settings UI 顯示「已設定/未設定」;不回傳 key)。
+#[tauri::command]
+fn groq_key_status() -> bool {
+    summarize::mori_config_path()
+        .map(|p| summarize::groq_api_key_present(&p))
+        .unwrap_or(false)
+}
+
+/// 設定 Groq API key 到共享 ~/.mori/config.json(空字串 = 清除)。
+#[tauri::command]
+fn set_groq_api_key(key: String) -> Result<(), String> {
+    let path = summarize::mori_config_path().ok_or("無法解析 ~/.mori/config.json 路徑")?;
+    summarize::set_groq_api_key_at(&path, &key)
+}
+
 // ── C3: 分人修正 command ────────────────────────────────────────────────────────
 
 /// 合併講者:把 merge_ids 的段全改成 keep_id(兩軌)+ 從 speakers.json 移除 merge_ids。
@@ -961,6 +976,8 @@ fn main() {
             reexport_session,
             summarize_session,
             read_summary_md,
+            groq_key_status,
+            set_groq_api_key,
             // C3: diarization correction commands
             merge_speakers,
             set_segment_speaker,
