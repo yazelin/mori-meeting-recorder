@@ -6,6 +6,7 @@ import TriangleIcon from "../components/icons/TriangleIcon";
 import SquareIcon from "../components/icons/SquareIcon";
 import SpinnerIcon from "../components/icons/SpinnerIcon";
 import TrackPanel from "../components/TrackPanel";
+import Select from "../components/Select";
 
 type RecState = "idle" | "recording" | "transcribing";
 
@@ -190,30 +191,24 @@ export default function RecordTab() {
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "0 0 10px" }}>
         {mode === "online" && (
-          <label style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+          <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 3 }}>
             {t("record.device_system")}
-            <select
+            <Select
               value={systemSource}
-              onChange={(e) => onSystemSource(e.target.value)}
+              onChange={onSystemSource}
               disabled={recState !== "idle"}
-              style={{ width: "100%", marginTop: 2 }}
-            >
-              <option value="">{t("record.device_default")}</option>
-              {systemSources.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-            </select>
+              options={[{ value: "", label: t("record.device_default") }, ...systemSources.map((d) => ({ value: d.id, label: d.label }))]}
+            />
           </label>
         )}
-        <label style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+        <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 3 }}>
           {t("record.device_mic")}
-          <select
+          <Select
             value={inputDevice}
-            onChange={(e) => onInputDevice(e.target.value)}
+            onChange={onInputDevice}
             disabled={recState !== "idle"}
-            style={{ width: "100%", marginTop: 2 }}
-          >
-            <option value="">{t("record.device_default")}</option>
-            {inputs.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-          </select>
+            options={[{ value: "", label: t("record.device_default") }, ...inputs.map((d) => ({ value: d.id, label: d.label }))]}
+          />
         </label>
       </div>
 

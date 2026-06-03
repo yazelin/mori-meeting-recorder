@@ -338,7 +338,7 @@ fn set_window_mode(window: tauri::Window, mode: String) -> Result<(), String> {
         "collapsed" => {
             // Save the current expanded size before collapsing.
             // inner_size() returns PhysicalSize; convert to logical via scale_factor.
-            let capsule_logical_w = 430.0_f64;
+            let capsule_logical_w = 480.0_f64;
             if let (Ok(phys), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
                 let logical_w = phys.width as f64 / scale;
                 let logical_h = phys.height as f64 / scale;

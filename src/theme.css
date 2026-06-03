@@ -69,6 +69,63 @@ html, body {
   color: var(--text);
   user-select: none;
   -webkit-user-select: none;
+  height: 100%;
+  /* frameless 視窗:Windows DPI / 字體下內容差幾 px 不要冒出捲軸(膠囊曾出現上下+左右捲軸) */
+  overflow: hidden;
+}
+
+/* 自訂捲軸 — Windows WebView2 預設捲軸又亮又粗、跟深色視窗不搭;
+   統一成細、半透明、低調(對齊 Linux WebKitGTK 的觀感)。Chromium/WebKit 都吃 ::-webkit-scrollbar。 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.30); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* 原生表單控件主題化 — 修 Windows 白底/系統勾選在深色視窗的突兀,全頁一致。
+   text 類用 :where() 零特異度 → 含沒寫 type 的 input(如 Sessions 搜尋框);
+   有 themed class 的(.setting-field-input / .mi-input)更具體,照舊蓋回不受影響。 */
+input:where(:not([type]), [type="text"], [type="search"], [type="password"]), textarea {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+}
+input:where(:not([type]), [type="text"], [type="search"], [type="password"])::placeholder,
+textarea::placeholder { color: var(--text-muted); }
+
+/* checkbox 全自繪深色 — accent-color 只染勾、未勾的白框仍突兀;appearance:none + 自畫勾,
+   讓所有頁面的 checkbox(強制本機/轉繁體/含逐字稿/講者選取…)外觀一致。 */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  position: relative;
+  vertical-align: middle;
+}
+input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 #root {
@@ -209,10 +266,13 @@ html, body {
 .expanded-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 10px 12px;
   border-bottom: 0.5px solid var(--border);
+  /* 內容稍寬時可水平捲(不擠壓變形),但捲軸隱藏不顯眼 */
+  overflow-x: auto;
 }
+.expanded-header::-webkit-scrollbar { display: none; }
 
 .tab-btn {
   background: transparent;
@@ -222,6 +282,9 @@ html, body {
   padding: 6px 12px;
   font-size: calc(12px * var(--scale));
   font-weight: 500;
+  /* Windows 較寬字體 / 窄視窗下,tab 文字不要被擠到換行變直排 */
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }

@@ -32,7 +32,7 @@ fn default_transcribe_engine() -> String {
     "auto".to_string()
 }
 fn default_expanded_width() -> u32 {
-    720
+    900
 }
 fn default_expanded_height() -> u32 {
     620
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(c.max_segment_secs, 20.0);
         assert_eq!(c.language, "zh");
         assert!(c.traditional);
-        assert_eq!(c.expanded_width, 720);
+        assert_eq!(c.expanded_width, 900);
         assert_eq!(c.expanded_height, 620);
     }
 
