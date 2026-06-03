@@ -102,7 +102,19 @@
     "lang_en": "English",
     "lang_ja": "Japanese",
     "traditional": "Convert to Traditional (Taiwan)",
-    "traditional_hint": "Converts Simplified output to Taiwan Traditional via OpenCC (needs the opencc tool installed; otherwise no-op)."
+    "traditional_hint": "Converts Simplified output to Taiwan Traditional via OpenCC (needs the opencc tool installed; otherwise no-op).",
+    "summary_section": "Summary",
+    "summary_groq_model": "Groq summary model",
+    "summary_ollama_model": "Local Ollama model",
+    "summary_ollama_base_url": "Ollama base URL",
+    "summary_force_local": "Force local only",
+    "summary_force_local_hint": "Never call cloud Groq — use local Ollama only.",
+    "groq_api_key": "Groq API key",
+    "groq_key_set": "Set ●●●",
+    "groq_key_unset": "Not set",
+    "groq_key_hint": "Written to shared ~/.mori/config.json (shared across Mori apps).",
+    "save_key": "Save key",
+    "key_saved": "Updated"
   },
   "workspace": {
     "back": "Back",

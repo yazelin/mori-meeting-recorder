@@ -641,10 +641,22 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
 .setting-field-row { display: flex; align-items: center; gap: 8px; }
 .setting-field-label { font-size: 12px; color: var(--text); min-width: 140px; }
 .setting-field-input {
-  width: 70px; padding: 4px 8px; font-size: 12px;
-  background: var(--btn-bg); color: var(--text);
-  border: 0.5px solid var(--border); border-radius: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: calc(12px * var(--scale));
+  background: var(--btn-bg);
+  color: var(--text);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+}
+/* number stepper 內的 input 保持固定寬 + 置中 + 等寬字型 */
+.setting-stepper .setting-field-input {
+  flex: none;
+  width: 70px;
+  text-align: center;
   font-family: ui-monospace, monospace;
+  border-radius: 6px;
 }
 .setting-field-unit { font-size: 11px; color: var(--text-secondary); }
 .setting-field-default { font-size: 10px; color: var(--text-dim); margin-left: auto; }
@@ -725,9 +737,9 @@ h4 { font-size: calc(12px * var(--scale)); color: var(--text-secondary); margin:
   font-size: 14px; line-height: 1;
 }
 .setting-stepper-btn:hover { background: var(--btn-bg-hover); color: var(--text); }
-.setting-field-input::-webkit-inner-spin-button,
-.setting-field-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-.setting-field-input { -moz-appearance: textfield; appearance: textfield; text-align: center; }
+.setting-stepper .setting-field-input::-webkit-inner-spin-button,
+.setting-stepper .setting-field-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.setting-stepper .setting-field-input { -moz-appearance: textfield; appearance: textfield; }
 
 /* header CC(浮動字幕開關)— icon-btn 裝文字,active 時橘色 */
 .icon-btn.active { color: var(--accent); background: var(--btn-bg); }

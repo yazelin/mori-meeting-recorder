@@ -102,7 +102,19 @@
     "lang_en": "英文",
     "lang_ja": "日文",
     "traditional": "轉成台灣繁體",
-    "traditional_hint": "把簡體輸出用 OpenCC 轉台灣繁體(需安裝 opencc 工具,沒裝就略過不轉)。"
+    "traditional_hint": "把簡體輸出用 OpenCC 轉台灣繁體(需安裝 opencc 工具,沒裝就略過不轉)。",
+    "summary_section": "摘要",
+    "summary_groq_model": "Groq 摘要模型",
+    "summary_ollama_model": "本機 Ollama 模型",
+    "summary_ollama_base_url": "Ollama 位址",
+    "summary_force_local": "強制只用本機",
+    "summary_force_local_hint": "不呼叫雲端 Groq,只用本機 Ollama。",
+    "groq_api_key": "Groq API 金鑰",
+    "groq_key_set": "已設定 ●●●",
+    "groq_key_unset": "未設定",
+    "groq_key_hint": "寫入共享 ~/.mori/config.json,宇宙其他 app 共用。",
+    "save_key": "儲存金鑰",
+    "key_saved": "已更新"
   },
   "workspace": {
     "back": "返回",

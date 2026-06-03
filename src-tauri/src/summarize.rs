@@ -444,7 +444,7 @@ fn read_json_pointer(path: &Path, pointer: &str) -> Option<String> {
 
 /// ~/.mori/config.json(共享 config,不是 recorder 自己的 meeting-recorder/config.json)。
 /// 鏡射 groq.rs:250-253 的 home.join(".mori").join("config.json")。
-fn mori_config_path() -> Option<PathBuf> {
+pub fn mori_config_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".mori").join("config.json"))
 }
 
@@ -467,6 +467,43 @@ fn resolve_groq_api_key_at(
     }
     // ② config /providers/groq/api_key(read_json_pointer 內含 is_empty/is_placeholder 過濾)
     read_json_pointer(config_path, "/providers/groq/api_key")
+}
+
+/// 共享 config 的 /providers/groq/api_key 是否已設(非空非 placeholder)。
+pub fn groq_api_key_present(config_path: &Path) -> bool {
+    read_json_pointer(config_path, "/providers/groq/api_key").is_some()
+}
+
+/// read-modify-write 共享 config 的 /providers/groq/api_key。
+/// 缺檔 → 建 {}(連同父目錄);壞檔(parse 失敗)→ Err,**不覆寫**(共享檔含其他 app 設定);
+/// 空 key → 移除該欄;保留 providers 下其他 provider 與頂層其他欄位。
+pub fn set_groq_api_key_at(config_path: &Path, key: &str) -> Result<(), String> {
+    let mut root: serde_json::Value = if config_path.exists() {
+        let text = std::fs::read_to_string(config_path)
+            .map_err(|e| format!("read shared config: {e}"))?;
+        if text.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_str(&text).map_err(|e| {
+                format!("shared config 不是合法 JSON,拒絕覆寫(請手動修 {}): {e}", config_path.display())
+            })?
+        }
+    } else {
+        serde_json::json!({})
+    };
+    let obj = root.as_object_mut().ok_or("shared config 頂層不是 JSON object,拒絕覆寫")?;
+    let providers = obj.entry("providers").or_insert_with(|| serde_json::json!({}));
+    let providers = providers.as_object_mut().ok_or("shared config /providers 不是 object")?;
+    let groq = providers.entry("groq").or_insert_with(|| serde_json::json!({}));
+    let groq = groq.as_object_mut().ok_or("shared config /providers/groq 不是 object")?;
+    if key.trim().is_empty() {
+        groq.remove("api_key");
+    } else {
+        groq.insert("api_key".into(), serde_json::Value::String(key.to_string()));
+    }
+    let body = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
+    // 原子寫:共享 config 其他 app 也讀,避免 crash 寫到半截(atomic_write 內含 mkdir + tmp+rename)。
+    atomic_write(config_path, &body)
 }
 
 /// 鏡射 redact.rs:38-56 的 5 個 pattern(精準 → 寬鬆),redact.rs:63 的 replace_all 邏輯。
@@ -1544,5 +1581,54 @@ mod tests {
             std::fs::read_to_string(store.summary_internal_md_path()).unwrap(),
             "之前生成的好內部版摘要"
         );
+    }
+
+    // ── groq key 讀/寫核心 ──
+    #[test]
+    fn groq_api_key_present_detects_set_and_unset() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("config.json");
+        assert!(!groq_api_key_present(&p)); // 缺檔
+        std::fs::write(&p, r#"{"providers":{"groq":{"api_key":"gsk_real"}}}"#).unwrap();
+        assert!(groq_api_key_present(&p));
+        std::fs::write(&p, r#"{"providers":{"groq":{"api_key":"YOUR_GROQ_KEY"}}}"#).unwrap();
+        assert!(!groq_api_key_present(&p)); // placeholder
+        std::fs::write(&p, r#"{"providers":{"groq":{"api_key":""}}}"#).unwrap();
+        assert!(!groq_api_key_present(&p)); // 空
+    }
+
+    #[test]
+    fn set_groq_api_key_at_roundtrips_and_preserves_other_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("config.json");
+        // 既有共享檔:含其他 provider + 頂層欄位
+        std::fs::write(&p, r#"{"foo":"bar","providers":{"openai":{"api_key":"oa"}}}"#).unwrap();
+        set_groq_api_key_at(&p, "gsk_new").unwrap();
+        assert!(groq_api_key_present(&p));
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v.pointer("/providers/groq/api_key").unwrap(), "gsk_new");
+        assert_eq!(v.pointer("/providers/openai/api_key").unwrap(), "oa"); // 其他 provider 保留
+        assert_eq!(v.pointer("/foo").unwrap(), "bar"); // 頂層保留
+    }
+
+    #[test]
+    fn set_groq_api_key_at_creates_when_missing_and_clears_on_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("sub/config.json"); // 連目錄都不存在
+        set_groq_api_key_at(&p, "gsk_x").unwrap();
+        assert!(groq_api_key_present(&p));
+        set_groq_api_key_at(&p, "").unwrap(); // 空字串 = 清除
+        assert!(!groq_api_key_present(&p));
+    }
+
+    #[test]
+    fn set_groq_api_key_at_refuses_to_clobber_corrupt_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("config.json");
+        std::fs::write(&p, "{ this is not json").unwrap();
+        let r = set_groq_api_key_at(&p, "gsk_x");
+        assert!(r.is_err());
+        // 壞檔原樣保留(沒被覆寫)
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "{ this is not json");
     }
 }
