@@ -148,6 +148,42 @@ pub fn read_session_summary(id: &str, base: &std::path::Path) -> SessionSummary 
     }
 }
 
+/// 寫該場 session-state.json 的 organized 旗標(獨立檔,不碰 meeting-info.json)。
+pub fn write_organized(session_root: &std::path::Path, organized: bool) -> Result<(), String> {
+    let body = serde_json::to_string_pretty(&serde_json::json!({ "organized": organized }))
+        .map_err(|e| e.to_string())?;
+    std::fs::write(session_root.join("session-state.json"), body)
+        .map_err(|e| format!("write session-state.json: {e}"))
+}
+
+/// 全文搜尋:掃 meetings_dir 下每場匯出的逐字稿 md(meeting.md / public / internal),
+/// query(去空白、小寫)子字串命中 → 收 session id。空 query → 空清單。讀檔失敗該場跳過。
+pub fn search_fulltext(meetings_dir: &std::path::Path, query: &str) -> Vec<String> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let mut hits = Vec::new();
+    let Ok(rd) = std::fs::read_dir(meetings_dir) else { return hits };
+    for entry in rd.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("meeting-") || !entry.path().is_dir() {
+            continue;
+        }
+        let root = entry.path();
+        for md in ["meeting.md", "meeting.public.md", "meeting.internal.md"] {
+            if let Ok(text) = std::fs::read_to_string(root.join(md)) {
+                if text.to_lowercase().contains(&q) {
+                    hits.push(name.clone());
+                    break;
+                }
+            }
+        }
+    }
+    hits.sort();
+    hits
+}
+
 fn count_segments_by_visibility(session_dir: &std::path::Path) -> (u32, u32) {
     let transcript_dir = session_dir.join("transcript");
     let entries = match std::fs::read_dir(&transcript_dir) {
@@ -295,6 +331,43 @@ mod tests {
         let s = read_session_summary("m", tmp.path());
         assert!(!s.corrupt);
         assert_eq!(s.preview, None);
+    }
+
+    #[test]
+    fn write_organized_roundtrips_and_keeps_topic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let root = base.join("meeting-z");
+        std::fs::create_dir_all(root.join("transcript")).unwrap();
+        std::fs::write(root.join("timeline.json"),
+            r#"{"schema_version":1,"session_id":"meeting-z","started_at":"t","stopped_at":"t","duration_secs":1,"tracks":[],"exports":{"public":"","internal":""}}"#).unwrap();
+        std::fs::write(root.join("meeting-info.json"), r#"{"topic":"專案A","participants":""}"#).unwrap();
+
+        write_organized(&root, true).unwrap();
+        let s = read_session_summary("meeting-z", base);
+        assert!(s.organized);
+        assert_eq!(s.topic, "專案A"); // 分檔,topic 不受影響
+
+        write_organized(&root, false).unwrap();
+        assert!(!read_session_summary("meeting-z", base).organized);
+    }
+
+    #[test]
+    fn search_fulltext_matches_md_case_insensitive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        for (id, md, text) in [
+            ("meeting-a", "meeting.public.md", "討論 Roadmap 與排程"),
+            ("meeting-b", "meeting.md", "現場閒聊"),
+        ] {
+            let root = base.join(id);
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(root.join(md), text).unwrap();
+        }
+        let hits = search_fulltext(base, "roadmap"); // 小寫 query 命中大寫 Roadmap
+        assert_eq!(hits, vec!["meeting-a".to_string()]);
+        assert!(search_fulltext(base, "不存在的字").is_empty());
+        assert!(search_fulltext(base, "   ").is_empty()); // 空白 query
     }
 
     #[test]
