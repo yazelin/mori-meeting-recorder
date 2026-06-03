@@ -3,6 +3,7 @@
 pub mod writer;
 pub mod levels;
 pub mod vad;
+pub mod devices;
 
 use serde::{Deserialize, Serialize};
 

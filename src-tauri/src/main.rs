@@ -358,6 +358,12 @@ fn set_window_mode(window: tauri::Window, mode: String) -> Result<(), String> {
     }
 }
 
+/// 列舉收音裝置(輸入麥 + 系統 monitor 源)給前端下拉。
+#[tauri::command]
+fn list_audio_devices() -> audio::devices::AudioDevices {
+    audio::devices::list_devices()
+}
+
 #[tauri::command]
 fn list_sessions() -> Vec<String> {
     let dir = session_store::default_meetings_dir();
@@ -912,6 +918,7 @@ fn main() {
             file_transcribe_one,
             file_transcribe_save_txt,
             file_transcribe_list_dir,
+            list_audio_devices,
             get_config,
             set_config,
             set_meeting_info,
