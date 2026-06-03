@@ -90,6 +90,12 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+// Windows 的執行檔是 `whisper-cli.exe`。spawn 時 CreateProcess 會自動補 `.exe`,
+// 但 deps_check 的 `Path::exists()` 不會 → 不帶副檔名會 false-negative 回報「缺 whisper-cli」
+// (即使實際能轉錄)。兩處共用這個常數,帶平台正確檔名就同時修好偵測與 spawn。
+#[cfg(windows)]
+const WHISPER_BIN: &str = "whisper-cli.exe";
+#[cfg(not(windows))]
 const WHISPER_BIN: &str = "whisper-cli";
 
 pub fn whisper_bin_path() -> std::path::PathBuf {
