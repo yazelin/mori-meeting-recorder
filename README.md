@@ -54,15 +54,31 @@ recorder 可被 [AgentOS](https://github.com/yazelin/agentos) 當 **body-part** 
 - `agentos-manifest.json`(repo root)—— **AgentOS** `AppManifest` v2。`kind: body-part`、
   `data_policy.owns_raw_data: true`(會議原始音訊歸 user,不對外送)、`consumes: transcribe.local`
   (standalone-first:本機 whisper 為主,偵測到共享服務才委派)、`provides: meeting.summarize`
-  (雙摘要能力;`kind: external` —— 由 app process 提供,真正跨 app dispatch 待 Phase 7 ACP)。
-  安裝:`agentos install <path-to-agentos-manifest.json>`,之後 `agentos apps` 看得到、受 broker→audit 治理。
+  (雙摘要能力;`kind: http-service` + `mode: json` —— 平台把 dispatch forward 到本地 headless
+  摘要 sidecar,見下)。安裝:`agentos install <path-to-agentos-manifest.json>`,之後 `agentos apps`
+  看得到、受 broker→audit 治理。
 - BI-1 manifest —— **mori-desktop** body registry,啟動時 self-register
   `~/.mori/body-parts/mori.meeting-recorder/manifest.json`(`schema_version: 1`、`kind: standalone_app`)。
   不同 schema、不同 consumer。
 
+### meeting.summarize dispatch — headless 摘要 sidecar
+
+recorder 是使用者手動開/關的 GUI app(按 ✕ 真正退出),不是 always-on daemon。所以摘要能力
+被抽成一支**獨立、隨需啟動、閒置自關的 detached HTTP sidecar** `mori-summarize-serve`:GUI 與
+AgentOS 都當 client。
+
+- AgentOS 走 http-service `mode: json`:平台讀 descriptor `~/.mori/mori-recorder-server.json`(host=
+  127.0.0.1)、驗活、把 `{session_id, force_local?}` 當 `application/json` POST 給 sidecar 的 `/summarize`;
+  sidecar 跑 recorder 既有的雙摘要 pipeline(Groq → 本機 Ollama fallback)、寫 `meeting.summary.public.md` /
+  `meeting.summary.internal.md` + `summary.audit.jsonl`、回 `SummaryResult` metadata。
+- 隨需喚醒:`mori-summarize-serve --ensure`(冪等、自我背景化;GUI 啟動時把它種到 `~/.mori/bin`)。
+  Groq key 由 sidecar 內部自讀共享 `~/.mori/config.json`(**不接受 caller 帶 key**)。
+- **注意**:`agentos run` 是一個 LLM turn,final_text 會被腦改寫 —— dispatch 成功 ≠ stdout 是 pipeline
+  原文。要驗「真 pipeline 有跑」看**檔案 side-effect + audit**,不要拿 CLI stdout 斷言摘要原文。
+
 **Standalone-first 不變**:agentos-manifest.json 是純宣告的 sidecar,不改 recorder 任何執行行為;
-沒裝 AgentOS,recorder 照常獨立跑。整場會議「optional-consumer」治理(偵測到 AgentOS 才把整場轉錄/匯出
-走治理、逐段仍 local)是後續 Phase 2,待 AgentOS cross-app proxy 落地。
+GUI 內按摘要鈕仍直接走 in-process `summarize_session`,完全不依賴 sidecar 起來。沒裝 AgentOS,
+recorder 照常獨立跑。整場會議「optional-consumer」治理(逐段仍 local)是後續 Phase 2。
 
 ## Design
 
