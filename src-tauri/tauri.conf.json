@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "Mori Meeting Recorder",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "identifier": "mori.meeting-recorder",
   "build": {
     "beforeDevCommand": "npm run dev",

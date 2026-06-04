@@ -92,15 +92,6 @@ export default function App() {
     setMode(next);
   };
 
-  // BI-5 follow-up:被 mori-desktop 啟動(--no-tray / 偵測到 desktop 在跑)時本 app 沒有自己的 tray,
-  // 啟動就展開膠囊(決定 #3),避免「只剩一個收合膠囊、又沒 tray」不好操作。
-  useEffect(() => {
-    invoke<boolean>("launched_no_tray")
-      .then((nt) => { if (nt) switchMode("expanded"); })
-      .catch(() => { /* ignore */ });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   return mode === "collapsed"
     ? <CapsuleView onExpand={() => switchMode("expanded")} />
     : <ExpandedView onCollapse={() => switchMode("collapsed")} liveSys={liveSys} liveMic={liveMic} />;
