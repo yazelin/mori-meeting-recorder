@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "Mori Meeting Recorder",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "identifier": "mori.meeting-recorder",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -24,10 +24,6 @@
       "resizable": true,
       "shadow": false
     }],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": false
-    },
     "security": {
       "csp": null
     }
