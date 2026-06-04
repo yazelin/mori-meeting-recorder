@@ -119,6 +119,7 @@ fn acquire_lock() -> Result<std::fs::File, String> {
             .create(true)
             .read(true)
             .write(true)
+            .truncate(false) // lock 內容只是診斷用 pid,不截斷(行為同原本無 truncate 的預設)
             .share_mode(0) // 獨占:別的 starter 同樣 share_mode(0) 開會失敗 = 鎖
             .open(&path)
             .map_err(|_| "another mori-whisper-serve holds the lock (windows exclusive)".to_string())?
@@ -128,6 +129,7 @@ fn acquire_lock() -> Result<std::fs::File, String> {
         .create(true)
         .read(true)
         .write(true)
+        .truncate(false) // 同上:lock 內容不截斷(預設行為,顯式標明以過 clippy)
         .open(&path)
         .map_err(|e| format!("open lock: {e}"))?;
 

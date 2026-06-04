@@ -295,7 +295,7 @@ async fn download_model() -> Result<(), String> {
                 .lines()
                 .filter_map(|l| l.strip_prefix("content-length:"))
                 .filter_map(|v| v.trim().parse::<u64>().ok())
-                .last()
+                .next_back()
             {
                 DL_TOTAL.store(len, Ordering::Relaxed);
             }
@@ -495,7 +495,7 @@ async fn download_diar_models() -> Result<(), String> {
                     .lines()
                     .filter_map(|l| l.strip_prefix("content-length:"))
                     .filter_map(|v| v.trim().parse::<u64>().ok())
-                    .last()
+                    .next_back()
                 {
                     total_bytes += len;
                 }
@@ -905,12 +905,12 @@ fn main() {
             // 共享 whisper supervisor:啟動時 best-effort 種一份到 ~/.mori/bin,讓**任何 app**
             // (含非 Rust 的 `--ensure`)之後都找得到。背景做、不卡 startup、不卡 record-start hot path;
             // 無條件(不看當下有沒有 server 在跑),失敗不致命。契約 §11。
-            std::thread::spawn(|| crate::whisper_discovery::install_shared_supervisor());
+            std::thread::spawn(crate::whisper_discovery::install_shared_supervisor);
             // 同理:把摘要 sidecar(mori-summarize-serve)種一份到 ~/.mori/bin,讓 AgentOS dispatch
             // 前的 `mori-summarize-serve --ensure` 從任何 context 找得到。**只 install,不 spawn**
             // (HTTP listener 必須是獨立 detached 程序,絕不綁進 GUI 進程 —— app 按 ✕ 退出後服務同死)。
             // standalone-first 不破:沒裝 AgentOS / sidecar 沒起,GUI 內按摘要鈕仍直接 in-process。
-            std::thread::spawn(|| crate::summarize_service::install_shared_sidecar());
+            std::thread::spawn(crate::summarize_service::install_shared_sidecar);
 
             // 預先建好兩個浮動字幕視窗(hidden)。在 startup 建,避免「建完馬上 show」的 race
             // (build().visible(false) 後立刻 show 時 is_visible 還是 false,視窗沒真的出來)。

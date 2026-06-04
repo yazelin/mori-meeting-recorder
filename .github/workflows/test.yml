@@ -1,9 +1,9 @@
 name: test
 
-# 既有的 build.yml 只跑 `tauri build`(驗 bundle 出得來),**不跑 `cargo test`** —— 那批 Rust 測試
-# (摘要 pipeline / sidecar / audio / session_store …)沒有 CI gate。本 workflow 補上:兩平台都跑
-# `cargo test`(recorder 是跨平台桌面 app,有平台特定 code:audio backend、sidecar 的 flock vs
-# share_mode 單例鎖、hide_console / DETACHED_PROCESS)。對齊 scripts/verify.sh 的 `cargo test`。
+# 既有的 build.yml 只跑 `tauri build`(驗 bundle 出得來),**不跑 `cargo test` / clippy** —— 那批 Rust
+# 測試(摘要 pipeline / sidecar / audio / session_store …)沒有 CI gate。本 workflow 補上:兩平台都跑
+# `cargo test` + `clippy -D warnings`(recorder 是跨平台桌面 app,有平台特定 code:audio backend、
+# sidecar 的 flock vs share_mode 單例鎖、hide_console / DETACHED_PROCESS)。對齊 scripts/verify.sh。
 
 on:
   pull_request:
@@ -63,6 +63,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -79,3 +81,8 @@ jobs:
 
       - name: Cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      # lib + bins clippy gate(-D warnings)。dist/ 已由上面 npm build 出來(generate_context! 需要)。
+      # 兩平台都跑(matrix)→ 抓平台特定 code(audio backend / sidecar flock vs share_mode)的 lint。
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked -- -D warnings
