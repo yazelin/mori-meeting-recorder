@@ -68,6 +68,14 @@ pub fn descriptor_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("mori-recorder-server.json"))
 }
 
+/// single-instance lockfile 路徑(`~/.mori/mori-recorder-server.lock`)。sidecar 用它擋雙開
+/// (兩個 `--ensure` 同時拉起 → 雙 listener / 雙寫 descriptor)。對齊 whisper-serve 的 flock 單例。
+pub fn lock_path() -> PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join(".mori").join("mori-recorder-server.lock"))
+        .unwrap_or_else(|| PathBuf::from("mori-recorder-server.lock"))
+}
+
 /// 解析 descriptor 字串 + 版本天花板(抽純函式好單測)。
 fn parse_descriptor_str(s: &str) -> Option<RecorderServerDescriptor> {
     let d: RecorderServerDescriptor = serde_json::from_str(s).ok()?;
@@ -202,42 +210,49 @@ fn sibling_sidecar_path() -> Option<PathBuf> {
     }
 }
 
-/// best-effort 把 sibling sidecar 種進 `~/.mori/bin`,讓 `--ensure` 從任何 context 找得到。
+/// 純複製邏輯(吃明確 src/dst,好單測且明確「只碰 fs、不開 socket」)。
 /// per-pid `.tmp` + rename(ETXTBSY-safe,對齊 whisper `install_shared_supervisor`);只在沒種過 /
-/// 大小不同 / sibling 較新時才複製。失敗不致命。
-pub fn install_shared_sidecar() {
-    let Some(sib) = sibling_sidecar_path() else {
-        return;
-    };
-    let shared = shared_sidecar_path();
-    let sib_meta = match std::fs::metadata(&sib) {
+/// 大小不同 / src 較新時才複製。回 true = 有複製。失敗一律 false(不致命)。
+fn seed_sidecar(src: &Path, dst: &Path) -> bool {
+    let src_meta = match std::fs::metadata(src) {
         Ok(m) => m,
-        Err(_) => return,
+        Err(_) => return false,
     };
-    let need = match std::fs::metadata(&shared) {
-        Ok(dm) => dm.len() != sib_meta.len() || sib_meta.modified().ok() > dm.modified().ok(),
+    let need = match std::fs::metadata(dst) {
+        Ok(dm) => dm.len() != src_meta.len() || src_meta.modified().ok() > dm.modified().ok(),
         Err(_) => true, // 還沒種過
     };
     if !need {
-        return;
+        return false;
     }
-    let Some(parent) = shared.parent() else {
-        return;
+    let Some(parent) = dst.parent() else {
+        return false;
     };
     let _ = std::fs::create_dir_all(parent);
-    let tmp = shared.with_extension(format!("tmp-install.{}", std::process::id()));
-    if std::fs::copy(&sib, &tmp).is_ok() {
+    let tmp = dst.with_extension(format!("tmp-install.{}", std::process::id()));
+    if std::fs::copy(src, &tmp).is_ok() {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
         }
-        if std::fs::rename(&tmp, &shared).is_err() {
-            let _ = std::fs::remove_file(&tmp);
+        if std::fs::rename(&tmp, dst).is_ok() {
+            return true;
         }
+        let _ = std::fs::remove_file(&tmp);
     } else {
         let _ = std::fs::remove_file(&tmp);
     }
+    false
+}
+
+/// best-effort 把 sibling sidecar 種進 `~/.mori/bin`,讓 `--ensure` 從任何 context 找得到。
+/// **純 fs 操作,絕不開 socket / 綁 listener**(GUI setup 背景呼這個是安全的)。失敗不致命。
+pub fn install_shared_sidecar() {
+    let Some(sib) = sibling_sidecar_path() else {
+        return;
+    };
+    let _ = seed_sidecar(&sib, &shared_sidecar_path());
 }
 
 /// 找可執行的 sidecar:先共用安裝點 `~/.mori/bin`,再退回 current_exe 旁邊(dev)。
@@ -318,6 +333,47 @@ mod tests {
         // 比支援上限新 → unusable。
         assert!(parse_descriptor_str(r#"{"contract_version":2,"host":"127.0.0.1","port":7}"#).is_none());
         assert!(parse_descriptor_str("{ not json").is_none());
+    }
+
+    #[test]
+    fn descriptor_serializes_with_keys_agentos_reads() {
+        // 跨 repo interop(acceptance item 2):AgentOS WhisperDescriptor 讀 host/port/inference_path/
+        // contract_version。serve() 一律廣告 loopback host、/summarize、contract_version 1 —— 鎖住
+        // 這些序列化鍵,任一端漂移即抓(對應 agentos 端 whisper_descriptor_parses_recorder_sidecar_shape)。
+        let d = RecorderServerDescriptor {
+            contract_version: 1,
+            host: "127.0.0.1".into(),
+            port: 51234,
+            model: "mori-meeting-recorder/summarize".into(),
+            pid: 4242,
+            started_at: "2026-06-04T10:00:00Z".into(),
+            inference_path: INFERENCE_PATH.into(),
+        };
+        let v = serde_json::to_value(&d).unwrap();
+        assert_eq!(v["host"], "127.0.0.1");
+        assert_eq!(v["port"], 51234);
+        assert_eq!(v["inference_path"], "/summarize");
+        assert_eq!(v["contract_version"], 1);
+        // 也能 round-trip 回我們自己的 parser。
+        assert_eq!(parse_descriptor_str(&serde_json::to_string(&d).unwrap()).unwrap(), d);
+    }
+
+    #[test]
+    fn seed_sidecar_copies_when_absent_skips_when_unchanged() {
+        // install 只碰 fs、不開 socket(對應「GUI setup 只 install、不綁 listener」紅線的可測面)。
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src-bin");
+        std::fs::write(&src, b"FAKEBINARY").unwrap();
+        let dst = tmp.path().join("bin").join("mori-summarize-serve");
+        // dst 不存在 → 複製。
+        assert!(seed_sidecar(&src, &dst));
+        assert_eq!(std::fs::read(&dst).unwrap(), b"FAKEBINARY");
+        // 同大小、src 不比 dst 新 → 不再複製。
+        assert!(!seed_sidecar(&src, &dst));
+        // src 內容變大 → 重新複製。
+        std::fs::write(&src, b"FAKEBINARY-BIGGER").unwrap();
+        assert!(seed_sidecar(&src, &dst));
+        assert_eq!(std::fs::read(&dst).unwrap(), b"FAKEBINARY-BIGGER");
     }
 
     #[test]

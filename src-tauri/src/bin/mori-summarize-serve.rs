@@ -50,7 +50,6 @@ mod whisper_discovery;
 #[path = "../summarize_service.rs"]
 mod summarize_service;
 
-use std::process::Command;
 use std::time::{Duration, Instant};
 use tiny_http::{Method, Request, Response, Server};
 
@@ -59,7 +58,6 @@ const REAP_CHECK_SECS: u64 = 15; // 每 15s 醒一次檢查閒置
 
 struct Args {
     idle_secs: u64,
-    host: String,
     port: Option<u16>,
     stop: bool,
     ensure: bool,
@@ -69,7 +67,6 @@ struct Args {
 fn parse_args() -> Args {
     let mut a = Args {
         idle_secs: DEFAULT_IDLE_SECS,
-        host: "127.0.0.1".to_string(),
         port: None,
         stop: false,
         ensure: false,
@@ -79,7 +76,6 @@ fn parse_args() -> Args {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--idle-secs" => a.idle_secs = it.next().and_then(|s| s.parse().ok()).unwrap_or(a.idle_secs),
-            "--host" => a.host = it.next().unwrap_or(a.host),
             "--port" => a.port = it.next().and_then(|s| s.parse().ok()),
             "--stop" => a.stop = true,
             "--ensure" => a.ensure = true,
@@ -90,10 +86,13 @@ fn parse_args() -> Args {
     a
 }
 
+// 故意**不提供 --host**:平台 client 只連 loopback,descriptor 也只廣告 127.0.0.1。一律 bind loopback,
+// 避免「bind 公開介面但 descriptor 謊稱 loopback」的 split-brain(review L1 defense-in-depth)。
+const BIND_HOST: &str = "127.0.0.1";
+
 const HELP: &str = "mori-summarize-serve — recorder 雙摘要 pipeline 的 headless HTTP sidecar
   --idle-secs <N>   閒置幾秒沒請求就自關(預設 600)
-  --host <HOST>     bind host(預設 127.0.0.1;平台 client 只連 loopback)
-  --port <PORT>     指定埠(預設自動選 ephemeral)
+  --port <PORT>     指定埠(預設自動選 ephemeral;一律 bind 127.0.0.1)
   --ensure          確保 sidecar 在跑(沒有就背景拉起),冪等 + 馬上返回。
                     AgentOS dispatch 前喚醒本地摘要服務用這個。
   --stop            停掉目前在跑的 sidecar
@@ -163,13 +162,66 @@ fn kill_pid(pid: u32) {
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).output();
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .output();
     }
 }
 
-/// bind → 寫 descriptor → serve loop(`recv_timeout` 每 REAP_CHECK 醒一次檢查閒置 TTL)→ 收尾刪 descriptor。
+/// 搶單例 lock(`~/.mori/mori-recorder-server.lock`)—— **pin 成 advisory flock**:Unix =
+/// `flock(LOCK_EX|LOCK_NB)`、Windows = `share_mode(0)` 獨占開檔;持有的 File 留到 process 死才釋放
+/// (crash-safe,核心自動放鎖)。**lockfile 永不刪**(刪了換 inode 會讓兩 starter 各鎖各的 → 雙開)。
+/// 回 held File;Err = 別人持鎖(我們不是 owner,別 spawn / 寫 descriptor)。對齊 mori-whisper-serve。
+fn acquire_lock() -> Result<std::fs::File, String> {
+    let path = summarize_service::lock_path();
+    if let Some(p) = path.parent() {
+        let _ = std::fs::create_dir_all(p);
+    }
+    #[cfg(windows)]
+    let file = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .share_mode(0) // 獨占:別的 starter 同樣 share_mode(0) 開會失敗 = 鎖
+            .open(&path)
+            .map_err(|_| "another mori-summarize-serve holds the lock (windows exclusive)".to_string())?
+    };
+    #[cfg(not(windows))]
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .map_err(|e| format!("open lock: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if rc != 0 {
+            return Err("another mori-summarize-serve holds the flock".into());
+        }
+    }
+    use std::io::Write;
+    let _ = (&file).write_all(std::process::id().to_string().as_bytes());
+    Ok(file)
+}
+
+/// 搶單例 lock → bind loopback → 寫 descriptor → serve loop(`recv_timeout` 每 REAP_CHECK 醒一次檢查
+/// 閒置 TTL)→ 收尾刪 descriptor。**只有 lock owner 才往下 bind+寫 descriptor**(兩個 `--ensure`
+/// 同時拉起時不會雙開 listener / 雙寫 descriptor)。
 fn serve(args: &Args) {
-    let bind = format!("{}:{}", args.host, args.port.unwrap_or(0));
+    // 持到 serve 結束才釋放(flock / 獨占 handle)。搶不到 = 別人正在起/在跑 → 安靜退(exit 0,非錯誤)。
+    let _lock = match acquire_lock() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("[summarize-serve] not the owner ({e}); another instance is starting/running — exiting");
+            std::process::exit(0);
+        }
+    };
+
+    let bind = format!("{BIND_HOST}:{}", args.port.unwrap_or(0));
     let server = match Server::http(&bind) {
         Ok(s) => s,
         Err(e) => {
@@ -204,16 +256,16 @@ fn serve(args: &Args) {
         args.idle_secs
     );
 
-    // pipeline 需要的兩個值在 serve 起手算一次(read_config / meetings_dir 不會在 serve 期間變)。
+    // meetings_dir 是 home-relative 常數(serve 期間不變)→ 算一次。force_local 預設改為**每請求**
+    // 讀 config(review L4:serve 長命時 config 編輯應即時生效,不要 snapshot 整個生命週期)。
     let meetings_dir = session_store::default_meetings_dir();
-    let default_force_local = config::read_config().summary_force_local_default;
 
     let mut last_activity = Instant::now();
     loop {
         match server.recv_timeout(Duration::from_secs(REAP_CHECK_SECS)) {
             Ok(Some(req)) => {
                 last_activity = Instant::now();
-                handle(req, &meetings_dir, default_force_local);
+                handle(req, &meetings_dir);
             }
             Ok(None) => {
                 if last_activity.elapsed() >= Duration::from_secs(args.idle_secs) {
@@ -232,7 +284,7 @@ fn serve(args: &Args) {
     eprintln!("[summarize-serve] stopped, removed descriptor");
 }
 
-fn handle(req: Request, meetings_dir: &std::path::Path, default_force_local: bool) {
+fn handle(req: Request, meetings_dir: &std::path::Path) {
     let method = req.method().clone();
     let url = req.url().to_string();
     let path = url.split('?').next().unwrap_or(&url).to_string();
@@ -241,7 +293,7 @@ fn handle(req: Request, meetings_dir: &std::path::Path, default_force_local: boo
             let _ = req.respond(Response::from_string("mori-recorder ok"));
         }
         (Method::Post, p) if p == summarize_service::INFERENCE_PATH => {
-            respond_summarize(req, meetings_dir, default_force_local);
+            respond_summarize(req, meetings_dir);
         }
         _ => {
             let _ = req.respond(Response::from_string("not found").with_status_code(404));
@@ -250,18 +302,24 @@ fn handle(req: Request, meetings_dir: &std::path::Path, default_force_local: boo
 }
 
 /// 讀 body → 純 handler(真 pipeline = `summarize_session_inner`)→ 單一回應點。
-fn respond_summarize(mut req: Request, meetings_dir: &std::path::Path, default_force_local: bool) {
+/// force_local 預設每請求讀 config(L4);pipeline panic 用 catch_unwind 包住,回 500、**不拖垮整個
+/// serve loop**(L3:一個壞請求不該讓 sidecar 整個死掉、留下指向死 port 的 stale descriptor)。
+fn respond_summarize(mut req: Request, meetings_dir: &std::path::Path) {
     let mut body = String::new();
     if req.as_reader().read_to_string(&mut body).is_err() {
         let _ = req.respond(Response::from_string("read body failed").with_status_code(400));
         return;
     }
-    let (status, out) = summarize_service::handle_summarize_request(
-        &body,
-        meetings_dir,
-        default_force_local,
-        |root, force_local| summarize::summarize_session_inner(root, force_local),
-    );
+    let default_force_local = config::read_config().summary_force_local_default;
+    let (status, out) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        summarize_service::handle_summarize_request(
+            &body,
+            meetings_dir,
+            default_force_local,
+            |root, force_local| summarize::summarize_session_inner(root, force_local),
+        )
+    }))
+    .unwrap_or_else(|_| (500, "summarize pipeline panicked".to_string()));
     let resp = if status == 200 {
         Response::from_string(out)
             .with_status_code(200)
