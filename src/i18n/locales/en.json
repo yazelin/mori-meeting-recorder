@@ -1,7 +1,7 @@
 {
   "capsule": {
-    "start": "▶",
-    "stop": "■",
+    "start": "Start",
+    "stop": "Stop",
     "transcribing": "transcribing…",
     "expand": "expand",
     "system_pill": "meeting",

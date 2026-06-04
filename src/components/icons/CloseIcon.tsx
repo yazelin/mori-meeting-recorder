@@ -1,9 +1,9 @@
-// src/components/icons/ChevronDownIcon.tsx
+// src/components/icons/CloseIcon.tsx
 //
-// Chevron pointing down — expand / dropdown caret. Pair with ChevronUpIcon.
+// X — close / quit. Replaces the ✕ glyph in capsule/expanded/caption headers.
 // Canonical icon style: 24×24 viewBox, stroke=currentColor, width 2, round caps.
 
-export default function ChevronDownIcon({ size = 16 }: { size?: number }) {
+export default function CloseIcon({ size = 14 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -16,7 +16,8 @@ export default function ChevronDownIcon({ size = 16 }: { size?: number }) {
       strokeLinejoin="round"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="m6 9 6 6 6-6" />
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
     </svg>
   );
 }

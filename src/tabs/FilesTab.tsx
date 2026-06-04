@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
+import SpinnerIcon from "../components/icons/SpinnerIcon";
+import AlertIcon from "../components/icons/AlertIcon";
 
 // 把現成音/影檔轉成逐字稿(非 session 錄音)。後端 file_transcribe_one:
 // ffmpeg 抽 WAV → whisper-cli → text。deps 走既有 deps_check(已含 ffmpeg_ok)。
@@ -155,7 +157,7 @@ export default function FilesTab() {
         <button className="mmr-btn" onClick={pick} disabled={busy}>{t("files.pick")}</button>
         <button className="mmr-btn primary" onClick={transcribe} disabled={!path || !depsOk || busy || batchRunning}>
           {busy
-            ? (<><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("files.transcribing")}</>)
+            ? (<><SpinnerIcon size={13} style={{ marginRight: 6 }} />{t("files.transcribing")}</>)
             : t("files.start")}
         </button>
         <button className="mmr-btn" onClick={pickFolder} disabled={busy || batchRunning || !depsOk}>{t("files.pick_folder")}</button>
@@ -164,7 +166,7 @@ export default function FilesTab() {
 
       {err && (
         <div className="callout" style={{ marginTop: 10, color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.3)", background: "rgba(255,99,99,0.08)" }}>
-          ⚠ {err}
+          <AlertIcon size={13} /> {err}
         </div>
       )}
 

@@ -1,20 +1,20 @@
 // src/components/icons/BarsIcon.tsx
 //
-// Tiny 3-vertical-bars equalizer icon for SignalPill.
-// Color = currentColor — caller decides active/inactive.
+// 3-bar equalizer (SignalPill sys/mic indicator). Color = currentColor.
+// Canonical icon style: 24×24 viewBox, fill=currentColor, size via prop.
 
-export default function BarsIcon({ size = 10 }: { size?: number }) {
+export default function BarsIcon({ size = 12 }: { size?: number }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 10 10"
+      viewBox="0 0 24 24"
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect x="1" y="5" width="1.6" height="4" rx="0.4" />
-      <rect x="4.2" y="2" width="1.6" height="7" rx="0.4" />
-      <rect x="7.4" y="4" width="1.6" height="5" rx="0.4" />
+      <rect x="4" y="11" width="3.5" height="9" rx="1" />
+      <rect x="10.25" y="5" width="3.5" height="15" rx="1" />
+      <rect x="16.5" y="9" width="3.5" height="11" rx="1" />
     </svg>
   );
 }

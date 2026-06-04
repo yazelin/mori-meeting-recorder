@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import TriangleIcon from "../components/icons/TriangleIcon";
 import SquareIcon from "../components/icons/SquareIcon";
 import SpinnerIcon from "../components/icons/SpinnerIcon";
+import MicIcon from "../components/icons/MicIcon";
+import AlertIcon from "../components/icons/AlertIcon";
 import TrackPanel from "../components/TrackPanel";
 import Select from "../components/Select";
 
@@ -111,11 +113,7 @@ export default function RecordTab() {
       disabled={voiceField !== null && voiceField !== field}
       title={t(voiceField === field ? "record.voice_stop" : "record.voice_input")}
     >
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="9" y="2" width="6" height="11" rx="3" />
-        <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
-        <line x1="12" y1="19" x2="12" y2="22" />
-      </svg>
+      <MicIcon size={13} />
     </button>
   );
 
@@ -174,7 +172,7 @@ export default function RecordTab() {
 
   return (
     <div>
-      <div className="callout">⚠ {t("record.warning")}</div>
+      <div className="callout"><AlertIcon size={13} /> {t("record.warning")}</div>
 
       <div className="mode-switch" role="group" aria-label={t("record.mode_label")} style={{ display: "flex", gap: 8, margin: "10px 0" }}>
         <button
@@ -290,7 +288,7 @@ export default function RecordTab() {
 
       {err && (
         <div className="callout" style={{ marginTop: 12, color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.30)", background: "rgba(255,99,99,0.08)" }}>
-          ⚠ {err}
+          <AlertIcon size={13} /> {err}
         </div>
       )}
     </div>

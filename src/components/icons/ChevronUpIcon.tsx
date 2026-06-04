@@ -1,9 +1,9 @@
-// src/components/icons/ChevronDownIcon.tsx
+// src/components/icons/ChevronUpIcon.tsx
 //
-// Chevron pointing down — expand / dropdown caret. Pair with ChevronUpIcon.
+// Chevron pointing up — collapse. Mirror of ChevronDownIcon (expand/collapse pair).
 // Canonical icon style: 24×24 viewBox, stroke=currentColor, width 2, round caps.
 
-export default function ChevronDownIcon({ size = 16 }: { size?: number }) {
+export default function ChevronUpIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -16,7 +16,7 @@ export default function ChevronDownIcon({ size = 16 }: { size?: number }) {
       strokeLinejoin="round"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="m6 9 6 6 6-6" />
+      <path d="m18 15-6-6-6 6" />
     </svg>
   );
 }

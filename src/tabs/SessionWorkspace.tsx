@@ -8,6 +8,7 @@ import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import Select, { SelectOption } from "../components/Select";
+import SpinnerIcon from "../components/icons/SpinnerIcon";
 
 interface Segment {
   id: string;
@@ -484,7 +485,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="mmr-btn primary" onClick={runDiarize} disabled={diarizing}>
             {diarizing
-              ? <><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("workspace.diarizing")}</>
+              ? <><SpinnerIcon size={13} style={{ marginRight: 6 }} />{t("workspace.diarizing")}</>
               : t("workspace.diar_btn")}
           </button>
           {diarizing && (
@@ -514,7 +515,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                 disabled={selectedSpeakers.length < 2 || merging}
               >
                 {merging
-                  ? <><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("workspace.merging")}</>
+                  ? <><SpinnerIcon size={13} style={{ marginRight: 6 }} />{t("workspace.merging")}</>
                   : t("workspace.merge_btn")}
               </button>
               {selectedSpeakers.length >= 2 && (
@@ -568,7 +569,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                     />
                   )}
                   {saving && (
-                    <span className="spinner-rotate" style={{ fontSize: 11, color: "var(--text-dim)" }}>↻</span>
+                    <SpinnerIcon size={11} style={{ color: "var(--text-dim)" }} />
                   )}
                 </div>
               );
@@ -623,7 +624,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                       onChange={(newId) => setSegmentSpeaker(seg, newId)}
                     />
                     {isSpeakerSaving && (
-                      <span className="spinner-rotate" style={{ fontSize: 10, color: "var(--text-dim)", position: "absolute", top: 0, right: -14 }}>↻</span>
+                      <SpinnerIcon size={10} style={{ color: "var(--text-dim)", position: "absolute", top: 0, right: -14 }} />
                     )}
                   </span>
                 ) : (
@@ -703,7 +704,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                     />
                     <span style={{ fontSize: 10, color: "var(--text-dim)" }}>
                       {isTextSaving
-                        ? <span className="spinner-rotate" style={{ marginRight: 4 }}>↻</span>
+                        ? <SpinnerIcon size={13} style={{ marginRight: 4 }} />
                         : t("workspace.text_edit_hint")}
                     </span>
                   </span>
@@ -748,7 +749,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
                   }}
                 >
                   {isSupplementSaving
-                    ? <span className="spinner-rotate">↻</span>
+                    ? <SpinnerIcon size={13} />
                     : t("workspace.supplement_toggle")}
                 </button>
               </div>
@@ -790,7 +791,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="mmr-btn primary" onClick={summarize} disabled={summarizing}>
             {summarizing
-              ? <><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("workspace.summarizing")}</>
+              ? <><SpinnerIcon size={13} style={{ marginRight: 6 }} />{t("workspace.summarizing")}</>
               : (summaryPublic || summaryInternal ? t("workspace.summary_reload") : t("workspace.summary_btn"))}
           </button>
           {summaryMsg && <span style={{ fontSize: 11, color: "var(--found-color)" }}>{summaryMsg}</span>}
@@ -851,7 +852,7 @@ export default function SessionWorkspace({ sessionId, onBack }: Props) {
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button className="mmr-btn" onClick={reexport} disabled={reexporting}>
           {reexporting
-            ? <><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("workspace.reexporting")}</>
+            ? <><SpinnerIcon size={13} style={{ marginRight: 6 }} />{t("workspace.reexporting")}</>
             : t("workspace.reexport_btn")}
         </button>
         {reexportMsg && <span style={{ fontSize: 11, color: "var(--found-color)" }}>{reexportMsg}</span>}

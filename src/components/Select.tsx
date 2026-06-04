@@ -6,6 +6,7 @@
 // 全部走 theme token,跟其餘 UI 一致。鍵盤可導航 + 點外面關閉。
 
 import { useEffect, useRef, useState } from "react";
+import ChevronDownIcon from "./icons/ChevronDownIcon";
 
 export type SelectOption = { value: string; label: string };
 
@@ -55,7 +56,7 @@ export default function Select({
     <div ref={wrapRef} className={`mmr-select ${open ? "open" : ""}`}>
       <button type="button" className="mmr-select-trigger" disabled={disabled} onClick={() => { if (!disabled) setOpen((o) => !o); }}>
         <span>{current ? current.label : "—"}</span>
-        <span className="mmr-select-caret" aria-hidden>▾</span>
+        <span className="mmr-select-caret" aria-hidden><ChevronDownIcon size={14} /></span>
       </button>
       {open && (
         <div className="mmr-select-panel">

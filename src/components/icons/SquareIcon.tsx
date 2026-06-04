@@ -1,17 +1,18 @@
 // src/components/icons/SquareIcon.tsx
 //
-// Filled stop square, used by RecordButton in recording state.
+// Filled stop square (RecordButton recording state).
+// Canonical icon style: 24×24 viewBox, fill=currentColor, size via prop.
 
 export default function SquareIcon({ size = 12 }: { size?: number }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 16 16"
+      viewBox="0 0 24 24"
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect x="3" y="3" width="10" height="10" rx="1.5" />
+      <rect x="6" y="6" width="12" height="12" rx="2" />
     </svg>
   );
 }
