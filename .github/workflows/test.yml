@@ -1,0 +1,81 @@
+name: test
+
+# 既有的 build.yml 只跑 `tauri build`(驗 bundle 出得來),**不跑 `cargo test`** —— 那批 Rust 測試
+# (摘要 pipeline / sidecar / audio / session_store …)沒有 CI gate。本 workflow 補上:兩平台都跑
+# `cargo test`(recorder 是跨平台桌面 app,有平台特定 code:audio backend、sidecar 的 flock vs
+# share_mode 單例鎖、hide_console / DETACHED_PROCESS)。對齊 scripts/verify.sh 的 `cargo test`。
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一 ref 後推的 commit 取消還在跑的舊 run。
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # actions/* 的 JS runtime 提前 opt-in Node 24(GitHub 2026-09-16 移除 Node 20)。對齊 build.yml。
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+          - name: windows-x86_64
+            os: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 編 recorder lib/bins 會 link tauri(Linux 需 webkit/gtk/rsvg/patchelf)+ audio(libpulse/alsa)。
+      # 與 build.yml 的依賴清單一致。Windows 不需(cpal WASAPI 走系統 SDK)。
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            patchelf \
+            libayatana-appindicator3-dev \
+            libxdo-dev \
+            libasound2-dev \
+            libpulse-dev
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # `generate_context!()` 編譯期讀 frontendDist(../dist)→ cargo test 前必須先 build 前端,
+      # 否則 lib/bin 編不過(同 verify.sh:npm build 必在 cargo test 之前)。
+      - name: Build frontend (dist/ for generate_context!)
+        run: npm run build
+
+      - name: Cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
