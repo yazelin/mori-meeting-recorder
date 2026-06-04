@@ -3,7 +3,7 @@
   "id": "mori.meeting-recorder",
   "name": "Mori Meeting Recorder",
   "kind": "body-part",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "realm_mode": "personal",
   "capabilities": ["audio.capture"],
   "permissions": [
@@ -20,8 +20,12 @@
   "provides": [
     {
       "skill": "meeting.summarize",
-      "kind": "external",
-      "exportable": true
+      "kind": "http-service",
+      "exportable": true,
+      "http_service": {
+        "descriptor_path": "~/.mori/mori-recorder-server.json",
+        "mode": "json"
+      }
     }
   ]
 }
