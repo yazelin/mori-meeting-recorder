@@ -425,6 +425,8 @@ pub struct TranscribeWorker {
 /// 啟一個 worker。speech_rx 來自 open_capture 回傳的 tuple;每段轉完呼 on_segment(&segments) 給呼叫端 emit。
 /// `language`: 傳給 whisper 的 `-l` 值(e.g. "zh"/"en"/"auto")。
 /// `traditional`: 是否嘗試用 opencc 轉台灣繁體。
+// 參數多(worker 要一次拿齊 session/裝置/語言/旗標等);拆 struct 是更大重構,這裡先 allow。
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_transcribe_worker(
     speech_rx: std::sync::mpsc::Receiver<crate::audio::vad::SpeechSegment>,
     session_id: String,

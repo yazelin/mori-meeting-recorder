@@ -83,7 +83,7 @@ pub fn diarize_wav(wav: &std::path::Path, num_clusters: Option<usize>) -> Result
 /// 從 meeting-info 的人員字串數人數(逗號 , 、頓號 、 、分號 ; 、換行 皆分隔);空 → None。
 pub fn participant_count(participants: &str) -> Option<usize> {
     let n = participants
-        .split(|c| c == ',' || c == '、' || c == ';' || c == '\n' || c == '，')
+        .split([',', '、', ';', '\n', '，'])
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .count();
