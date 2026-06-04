@@ -25,6 +25,21 @@
       "http_service": {
         "descriptor_path": "~/.mori/mori-recorder-server.json",
         "mode": "json"
+      },
+      "description": "為指定的會議 session 產生雙摘要(公開版 + 內部版),寫進該 session 目錄並回 metadata。",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "會議 session id,例如 meeting-20260604-103215(~/.mori/meetings/ 下的目錄名)"
+          },
+          "force_local": {
+            "type": "boolean",
+            "description": "選填;true = 跳過雲端 Groq、只用本機 Ollama 摘要(資料主權逃生口)"
+          }
+        },
+        "required": ["session_id"]
       }
     }
   ]
