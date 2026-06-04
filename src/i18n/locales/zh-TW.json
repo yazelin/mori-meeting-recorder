@@ -1,7 +1,7 @@
 {
   "capsule": {
-    "start": "▶",
-    "stop": "■",
+    "start": "開始",
+    "stop": "停止",
     "transcribing": "轉錄中…",
     "expand": "展開",
     "system_pill": "會議音訊",

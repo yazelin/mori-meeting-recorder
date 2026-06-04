@@ -13,6 +13,8 @@ import SettingsTab from "./tabs/SettingsTab";
 import PeopleTab from "./tabs/PeopleTab";
 import FilesTab from "./tabs/FilesTab";
 import SignalPill from "./components/SignalPill";
+import ChevronUpIcon from "./components/icons/ChevronUpIcon";
+import CloseIcon from "./components/icons/CloseIcon";
 import { type LiveSegment } from "./components/LiveColumn";
 
 type Tab = "record" | "live" | "sessions" | "people" | "files" | "deps" | "settings";
@@ -134,8 +136,8 @@ export default function ExpandedView({ onCollapse, liveSys, liveMic }: { onColla
           onClick={toggleCaptions}
           title={captionsVisible ? "hide caption windows" : "show caption windows"}
         >CC</button>
-        <button className="icon-btn" onClick={onCollapse} title="collapse">▴</button>
-        <button className="icon-btn" onClick={quitApp} title="結束 / quit">✕</button>
+        <button className="icon-btn" onClick={onCollapse} title="collapse"><ChevronUpIcon size={16} /></button>
+        <button className="icon-btn" onClick={quitApp} title="結束 / quit"><CloseIcon size={14} /></button>
       </div>
       <div className="expanded-body" style={{ flex: 1 }}>
         {tab === "record" && <RecordTab />}

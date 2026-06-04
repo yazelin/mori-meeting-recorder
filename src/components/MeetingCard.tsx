@@ -4,6 +4,7 @@
 // 點卡身或 ↗ 都會 open session folder;corrupt session 只顯示 id + 警告,不能 open。
 
 import SegPill from "./SegPill";
+import OpenIcon from "./icons/OpenIcon";
 
 interface SessionSummary {
   id: string;
@@ -55,7 +56,7 @@ export default function MeetingCard({ summary, onOpen, onWorkspace, onToggleOrga
           <span className="mc-corrupt-tag">資料損毀(無 timeline.json)</span>
         </div>
         <div className="mc-pills" />
-        <button className="mc-open" disabled title="無法開啟損毀的 session">↗</button>
+        <button className="mc-open" disabled title="無法開啟損毀的 session"><OpenIcon size={13} /></button>
       </div>
     );
   }
@@ -108,7 +109,7 @@ export default function MeetingCard({ summary, onOpen, onWorkspace, onToggleOrga
           className="mc-open"
           onClick={(e) => { e.stopPropagation(); open(); }}
           title="開啟資料夾"
-        >↗</button>
+        ><OpenIcon size={13} /></button>
       </div>
     </div>
   );

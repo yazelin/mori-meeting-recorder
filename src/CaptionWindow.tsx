@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useTranslation } from "react-i18next";
+import CloseIcon from "./components/icons/CloseIcon";
 
 interface LiveSegmentEvent {
   track: "sys" | "mic";
@@ -87,7 +88,7 @@ export default function CaptionWindow({ track }: { track: "sys" | "mic" }) {
           className="cap-win-close"
           onClick={() => getCurrentWebviewWindow().hide().catch(() => {})}
           title="hide"
-        >✕</button>
+        ><CloseIcon size={13} /></button>
       </div>
       <div className="cap-win-body">
         {lines.length === 0 && <p className="cap-win-empty">{t("live.empty")}</p>}

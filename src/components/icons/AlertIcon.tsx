@@ -1,9 +1,9 @@
-// src/components/icons/ChevronDownIcon.tsx
+// src/components/icons/AlertIcon.tsx
 //
-// Chevron pointing down — expand / dropdown caret. Pair with ChevronUpIcon.
+// Warning triangle — replaces the ⚠ glyph in callouts / error pills.
 // Canonical icon style: 24×24 viewBox, stroke=currentColor, width 2, round caps.
 
-export default function ChevronDownIcon({ size = 16 }: { size?: number }) {
+export default function AlertIcon({ size = 14 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -16,7 +16,9 @@ export default function ChevronDownIcon({ size = 16 }: { size?: number }) {
       strokeLinejoin="round"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="m6 9 6 6 6-6" />
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
     </svg>
   );
 }

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import CopyCodeBlock from "../components/CopyCodeBlock";
+import SpinnerIcon from "../components/icons/SpinnerIcon";
+import AlertIcon from "../components/icons/AlertIcon";
 
 type DepsCheck = {
   ffmpeg_ok: boolean;
@@ -107,7 +109,7 @@ export default function DepsTab() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button className="mmr-btn primary" onClick={downloadDiarModels} disabled={diarDl}>
               {diarDl ? (
-                <><span className="spinner-rotate" style={{ marginRight: 6 }}>↻</span>{t("deps.downloading")}</>
+                <><SpinnerIcon size={13} style={{ marginRight: 6 }} />{t("deps.downloading")}</>
               ) : t("deps.diar_download_btn")}
             </button>
           </div>
@@ -164,7 +166,7 @@ export default function DepsTab() {
       {dl.active && (
         <div className="dl-bar"><div className="dl-bar-fill" style={{ width: dl.total > 0 ? `${pct}%` : "40%" }} /></div>
       )}
-      {dlErr && <div className="callout" style={{ marginTop: 8, color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.3)", background: "rgba(255,99,99,0.08)" }}>⚠ {dlErr}</div>}
+      {dlErr && <div className="callout" style={{ marginTop: 8, color: "var(--danger-color)", borderColor: "rgba(255,99,99,0.3)", background: "rgba(255,99,99,0.08)" }}><AlertIcon size={13} /> {dlErr}</div>}
       <details style={{ marginTop: 8 }}>
         <summary style={{ fontSize: 10.5, color: "var(--text-dim)", cursor: "pointer" }}>{t("deps.or_terminal")}</summary>
         <CopyCodeBlock code={modelDlCmd} />

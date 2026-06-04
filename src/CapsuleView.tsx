@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import SignalPill from "./components/SignalPill";
 import RecordButton from "./components/RecordButton";
 import ChevronDownIcon from "./components/icons/ChevronDownIcon";
+import CloseIcon from "./components/icons/CloseIcon";
+import AlertIcon from "./components/icons/AlertIcon";
 
 type RecorderStatus = {
   state: "idle" | "recording" | "transcribing";
@@ -88,7 +90,7 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
         <SignalPill kind="sys" active={!!status?.system_signal} />
         <SignalPill kind="mic" active={!!status?.mic_signal} />
         {err && (
-          <span className="signal-pill err" title={err}>⚠</span>
+          <span className="signal-pill err" title={err}><AlertIcon size={11} /></span>
         )}
       </span>
       <RecordButton state={recState} onClick={onStartStop} />
@@ -98,9 +100,9 @@ export default function CapsuleView({ onExpand }: { onExpand: () => void }) {
         title={captionsVisible ? "hide caption windows" : "show caption windows"}
       >CC</button>
       <button className="icon-btn" onClick={onExpand} title={t("capsule.expand")}>
-        <ChevronDownIcon size={12} />
+        <ChevronDownIcon size={16} />
       </button>
-      <button className="icon-btn" onClick={quitApp} title="結束 / quit">✕</button>
+      <button className="icon-btn" onClick={quitApp} title="結束 / quit"><CloseIcon size={14} /></button>
     </div>
   );
 }
