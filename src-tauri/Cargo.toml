@@ -1,6 +1,6 @@
 [package]
 name = "mori-meeting-recorder"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "Standalone dual-track meeting recorder for the Mori universe (Observer Mode MVP)"
 # 兩個 bin(app + mori-whisper-serve supervisor)→ `cargo run`(tauri dev 用)要指定預設,否則 ambiguous。
