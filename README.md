@@ -71,10 +71,17 @@ AgentOS 都當 client。
   127.0.0.1)、驗活、把 `{session_id, force_local?}` 當 `application/json` POST 給 sidecar 的 `/summarize`;
   sidecar 跑 recorder 既有的雙摘要 pipeline(Groq → 本機 Ollama fallback)、寫 `meeting.summary.public.md` /
   `meeting.summary.internal.md` + `summary.audit.jsonl`、回 `SummaryResult` metadata。
-- 隨需喚醒:`mori-summarize-serve --ensure`(冪等、自我背景化;GUI 啟動時把它種到 `~/.mori/bin`)。
-  Groq key 由 sidecar 內部自讀共享 `~/.mori/config.json`(**不接受 caller 帶 key**)。
-- **注意**:`agentos run` 是一個 LLM turn,final_text 會被腦改寫 —— dispatch 成功 ≠ stdout 是 pipeline
-  原文。要驗「真 pipeline 有跑」看**檔案 side-effect + audit**,不要拿 CLI stdout 斷言摘要原文。
+- **安裝(部署/打包後)**:`bash scripts/install-supervisor.sh`(或 `scripts/install-supervisor.ps1`)
+  —— build + 把 `mori-summarize-serve`(及 `mori-whisper-serve`)裝進 `~/.mori/bin/`。GUI 第一次跑也會
+  best-effort 種一份,但**只在 dev 成立**(sidecar bin 在 app 旁邊時);packaged bundle 沒把 sidecar 列為
+  Tauri `externalBin`,所以**打包/部署後請用本腳本鋪**(否則 AgentOS dispatch 找不到 sidecar)。
+- 隨需喚醒:`~/.mori/bin/mori-summarize-serve --ensure`(冪等、自我背景化)。Groq key 由 sidecar
+  內部自讀共享 `~/.mori/config.json`(**不接受 caller 帶 key**)。
+- **`agentos run` 用 meeting.summarize 的兩個前提**:① manifest 已宣告 `input_schema`(`session_id`
+  required / `force_local`),腦才知道要帶 `session_id`(agentos#21);② **agentos 腦讀 `GROQ_API_KEY`
+  環境變數**(不是 `~/.mori/config.json` —— 那是 summarize pipeline 自己的 key),跑前需 `export GROQ_API_KEY=…`。
+- **注意**:`agentos run` 是一個 LLM turn,final_text 會被腦改寫(甚至幻覺檔名)—— dispatch 成功 ≠ stdout
+  是 pipeline 原文。要驗「真 pipeline 有跑」看**檔案 side-effect + audit**,不要拿 CLI stdout 斷言摘要原文。
 
 **Standalone-first 不變**:agentos-manifest.json 是純宣告的 sidecar,不改 recorder 任何執行行為;
 GUI 內按摘要鈕仍直接走 in-process `summarize_session`,完全不依賴 sidecar 起來。沒裝 AgentOS,
