@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mori Meeting Recorder｜本機優先的會議錄音、轉錄與摘要工具</title>
+  <meta name="description" content="Mori Meeting Recorder 是 Mori universe 的 standalone 會議記錄工具：雙軌錄音、本機 whisper 轉錄、客戶版/內部版匯出、講者分離、檔案批次轉錄與會議摘要。" />
+  <meta property="og:title" content="Mori Meeting Recorder" />
+  <meta property="og:description" content="本機優先、雙軌、可分客戶版與內部版的會議記錄軟體。" />
+  <meta property="og:type" content="website" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav" aria-label="主要導覽">
+      <a class="brand" href="#top" aria-label="回到首頁">
+        <span class="brand-mark">M</span>
+        <span>Mori Meeting Recorder</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links">選單</button>
+      <div class="nav-links" id="nav-links">
+        <a href="#features">功能</a>
+        <a href="#install">安裝</a>
+        <a href="#quickstart">操作</a>
+        <a href="#exports">輸出</a>
+        <a href="#faq">FAQ</a>
+        <a class="nav-cta" href="https://github.com/yazelin/mori-meeting-recorder">GitHub</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero section-shell">
+      <div class="hero-copy">
+        <p class="eyebrow">Standalone-first meeting recorder for the Mori universe</p>
+        <h1>把線上或現場會議，整理成可交付的客戶版與內部版紀錄。</h1>
+        <p class="hero-lead">
+          Mori Meeting Recorder 是一套桌面會議記錄軟體，支援雙軌錄音、即時字幕、本機 whisper 轉錄、講者分離、會議摘要，以及檔案/資料夾批次轉錄。核心資料預設保存在使用者自己的電腦，不需要 Mori Desktop 也能獨立運作。
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="#install">開始安裝</a>
+          <a class="button secondary" href="#quickstart">查看完整操作流程</a>
+        </div>
+        <div class="trust-row" aria-label="特色摘要">
+          <span>本機優先</span>
+          <span>雙軌錄音</span>
+          <span>客戶/內部分流</span>
+          <span>Windows + Linux</span>
+        </div>
+      </div>
+      <div class="app-card" aria-label="軟體介面示意">
+        <div class="window-bar"><span></span><span></span><span></span></div>
+        <div class="capsule-demo">
+          <div class="pulse"></div>
+          <div>
+            <strong>錄音中</strong>
+            <small>會議音訊 + 內部麥克風</small>
+          </div>
+          <button>停止</button>
+        </div>
+        <div class="columns-demo">
+          <div>
+            <h3>會議音訊</h3>
+            <p>客戶、主持人、遠端與會者的內容。</p>
+            <span class="chip">PUBLIC</span>
+          </div>
+          <div>
+            <h3>內部麥克風</h3>
+            <p>團隊旁白、私下補充與決議依據。</p>
+            <span class="chip internal">INTERNAL</span>
+          </div>
+        </div>
+        <div class="summary-demo">
+          <span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-shell notice-grid" aria-label="重要原則">
+      <article class="notice-card">
+        <h2>使用者擁有資料</h2>
+        <p>錄音、逐字稿與摘要檔案放在 <code>~/.mori/meetings/</code>。轉錄以本機 whisper 為主；摘要若啟用雲端 Groq，請先確認會議敏感度。</p>
+      </article>
+      <article class="notice-card">
+        <h2>客戶版不混入麥克風私聊</h2>
+        <p><code>meeting.public.md</code> 只匯出可公開內容；本機麥克風與決議依據預設保留在 <code>meeting.internal.md</code>。</p>
+      </article>
+      <article class="notice-card">
+        <h2>Standalone-first</h2>
+        <p>可單獨作為 Tauri 桌面 App 使用；有 Mori Desktop 或 AgentOS 時，也可共享 whisper / 摘要 sidecar 與 body-part 整合。</p>
+      </article>
+    </section>
+
+    <section id="features" class="section-shell">
+      <div class="section-heading">
+        <p class="eyebrow">Features</p>
+        <h2>核心功能</h2>
+        <p>從會前設定、會中錄音、會後整理到輸出交付，集中在同一個工作區。</p>
+      </div>
+      <div class="feature-grid">
+        <article>
+          <span class="icon">🎙️</span>
+          <h3>線上會議雙軌錄音</h3>
+          <p>同時收錄系統會議音訊 <code>meeting_system</code> 與本機麥克風 <code>mic_internal</code>，會後依 visibility 自動分流。</p>
+        </article>
+        <article>
+          <span class="icon">🏢</span>
+          <h3>現場會議模式</h3>
+          <p>將預設輸入視為房間麥克風，適合面對面會議、訪談或工作坊。</p>
+        </article>
+        <article>
+          <span class="icon">💬</span>
+          <h3>即時字幕與 VAD 切段</h3>
+          <p>錄音中以音量與靜音門檻切段，顯示逐步轉錄進度與字幕欄位。</p>
+        </article>
+        <article>
+          <span class="icon">🧠</span>
+          <h3>本機 whisper 轉錄</h3>
+          <p>使用 <code>~/.mori/bin/whisper-cli</code> 與 <code>~/.mori/models/</code> 模型，支援 small 與 large-v3-turbo。</p>
+        </article>
+        <article>
+          <span class="icon">👥</span>
+          <h3>講者分離與聲紋註冊</h3>
+          <p>會後可執行分人、合併講者、改名；也可先在「人員」分頁註冊聲紋樣本。</p>
+        </article>
+        <article>
+          <span class="icon">📁</span>
+          <h3>檔案與資料夾批次轉錄</h3>
+          <p>將既有音檔或影片轉成逐字稿；資料夾批次處理可逐一保存 <code>.txt</code>。</p>
+        </article>
+        <article>
+          <span class="icon">📝</span>
+          <h3>客戶版 / 內部版摘要</h3>
+          <p>工作區可生成 <code>meeting.summary.public.md</code> 與 <code>meeting.summary.internal.md</code>，敏感場次可勾選強制本機。</p>
+        </article>
+        <article>
+          <span class="icon">🔌</span>
+          <h3>共享 sidecar</h3>
+          <p>可安裝 <code>mori-whisper-serve</code> 與 <code>mori-summarize-serve</code>，讓多個 Mori app 共用同一套本機服務。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="install" class="section-shell split-section">
+      <div>
+        <p class="eyebrow">Install</p>
+        <h2>安裝與準備環境</h2>
+        <p>
+          開發版可直接從原始碼啟動。正式打包版本也需要 whisper-cli、模型與部分可選 sidecar；建議先照下面步驟完成依賴，再打開 App 的「Deps」分頁確認狀態。
+        </p>
+        <ol class="steps">
+          <li><strong>取得專案：</strong>clone repository 並安裝 Node 套件。</li>
+          <li><strong>安裝 whisper：</strong>Linux 用 shell script；Windows 用 PowerShell script。</li>
+          <li><strong>啟動 App：</strong>開發模式執行 <code>npm run tauri dev</code>。</li>
+          <li><strong>檢查依賴：</strong>在 App 內開啟「Deps」分頁確認 ffmpeg、whisper-cli、模型與分人模型。</li>
+        </ol>
+      </div>
+      <div class="code-stack">
+        <div class="code-card">
+          <div class="code-title">Linux / macOS shell</div>
+          <pre><code>git clone https://github.com/yazelin/mori-meeting-recorder
+cd mori-meeting-recorder
+npm install
+bash scripts/install-whisper-linux.sh
+bash scripts/install-supervisor.sh
+npm run tauri dev</code></pre>
+          <button class="copy-button" data-copy="git clone https://github.com/yazelin/mori-meeting-recorder&#10;cd mori-meeting-recorder&#10;npm install&#10;bash scripts/install-whisper-linux.sh&#10;bash scripts/install-supervisor.sh&#10;npm run tauri dev">複製</button>
+        </div>
+        <div class="code-card">
+          <div class="code-title">Windows PowerShell</div>
+          <pre><code>git clone https://github.com/yazelin/mori-meeting-recorder
+cd mori-meeting-recorder
+npm install
+powershell -ExecutionPolicy Bypass -File scripts/install-whisper-windows.ps1
+powershell -ExecutionPolicy Bypass -File scripts/install-supervisor.ps1
+npm run tauri dev</code></pre>
+          <button class="copy-button" data-copy="git clone https://github.com/yazelin/mori-meeting-recorder&#10;cd mori-meeting-recorder&#10;npm install&#10;powershell -ExecutionPolicy Bypass -File scripts/install-whisper-windows.ps1&#10;powershell -ExecutionPolicy Bypass -File scripts/install-supervisor.ps1&#10;npm run tauri dev">複製</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-shell requirements">
+      <div class="section-heading compact">
+        <p class="eyebrow">Checklist</p>
+        <h2>依賴檢查清單</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>項目</th><th>用途</th><th>建議位置 / 注意事項</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>whisper-cli</td><td>會議與檔案轉錄</td><td><code>~/.mori/bin/whisper-cli</code>；Windows 為 <code>whisper-cli.exe</code>。</td></tr>
+            <tr><td>GGML 模型</td><td>small 或 large-v3-turbo 轉錄模型</td><td><code>~/.mori/models/ggml-small.bin</code>；turbo 可在 Deps 分頁下載。</td></tr>
+            <tr><td>ffmpeg</td><td>檔案/影片轉錄前抽音軌</td><td>需要加入 PATH；現場錄音本身不依賴 ffmpeg。</td></tr>
+            <tr><td>分人模型</td><td>講者分離與聲紋辨識</td><td>在 Deps 分頁按「下載分人模型」。</td></tr>
+            <tr><td>Ollama / Groq</td><td>會議摘要</td><td>敏感會議可勾選強制本機；Groq API key 寫入 <code>~/.mori/config.json</code>。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="quickstart" class="section-shell">
+      <div class="section-heading">
+        <p class="eyebrow">How to use</p>
+        <h2>完整操作說明</h2>
+        <p>以下流程以「先準備、會中錄音、會後整理、匯出交付」為順序。</p>
+      </div>
+
+      <div class="manual-grid">
+        <article class="manual-card">
+          <div class="manual-number">1</div>
+          <h3>會前：設定本場資訊</h3>
+          <ul>
+            <li>打開「錄音」分頁。</li>
+            <li>在「本場主題」輸入會議名稱、專案或客戶名稱。</li>
+            <li>在「參與者」輸入與會者；可一行一位或用逗號分隔。</li>
+            <li>選擇「線上會議」或「現場會議」。線上會議會分系統音訊與麥克風；現場會議以房間麥克風為主。</li>
+            <li>確認麥克風與系統音訊來源。若沒有看到想要的裝置，先檢查作業系統音訊設定再回到 App 重新整理。</li>
+          </ul>
+        </article>
+
+        <article class="manual-card">
+          <div class="manual-number">2</div>
+          <h3>會中：開始錄音與觀看字幕</h3>
+          <ul>
+            <li>按「開始錄音」。膠囊視窗可維持在桌面上方，降低干擾。</li>
+            <li>線上模式會保存會議音訊與內部麥克風兩條軌道；內部麥克風適合記錄自己的補充、提醒或旁白。</li>
+            <li>開啟「字幕」分頁可查看會議音訊與麥克風欄位的即時轉錄進度。</li>
+            <li>若字幕太碎或延遲太大，可到「設定」調整靜音切點、最短語音段與安全切點上限，下一次錄音生效。</li>
+            <li>會議結束按「停止」。App 會進入雙軌轉錄階段，請等待進度完成。</li>
+          </ul>
+        </article>
+
+        <article class="manual-card">
+          <div class="manual-number">3</div>
+          <h3>會後：進入 Session 工作區</h3>
+          <ul>
+            <li>在「Sessions」分頁選擇剛完成的卡片，進入工作區。</li>
+            <li>需要補改主題或參與者時，在「會議資訊」區塊更新後按「儲存」。</li>
+            <li>點逐字稿文字可直接修正錯字；使用 Ctrl/Cmd + Enter 儲存，Esc 取消。</li>
+            <li>若已下載分人模型，按「分人」執行講者分離，再替未知講者命名或合併重複講者。</li>
+            <li>將重要的內部旁白標記為「決議依據」，它會進入內部版補充區，不會進入客戶版。</li>
+          </ul>
+        </article>
+
+        <article class="manual-card">
+          <div class="manual-number">4</div>
+          <h3>摘要：產生客戶版與內部版紀錄</h3>
+          <ul>
+            <li>在 Session 工作區找到「會議紀錄」區塊。</li>
+            <li>若會議敏感，先勾選「強制本地處理」，只用本機 Ollama，不呼叫 Groq。</li>
+            <li>按「生成摘要」後等待處理完成。</li>
+            <li>切換「客戶版」與「內部版」分頁檢查內容。客戶版用於對外交付，內部版保留私下補充、決議依據與更完整脈絡。</li>
+            <li>若修改逐字稿或講者後需要更新輸出，使用「重新匯出」或重新生成摘要。</li>
+          </ul>
+        </article>
+
+        <article class="manual-card">
+          <div class="manual-number">5</div>
+          <h3>檔案轉錄：處理既有音檔或影片</h3>
+          <ul>
+            <li>打開「檔案」分頁，確認 ffmpeg、whisper-cli 與模型都顯示找到。</li>
+            <li>按「選檔」挑選單一音檔/影片，再按「開始轉錄」。</li>
+            <li>轉錄完成後可複製文字，或按「存 .txt」把結果存在來源檔旁邊。</li>
+            <li>若要處理整個資料夾，按「選資料夾」後再按「開始批次轉錄」。每個檔案會逐一處理並顯示完成、失敗或已中止。</li>
+          </ul>
+        </article>
+
+        <article class="manual-card">
+          <div class="manual-number">6</div>
+          <h3>人員：建立聲紋資料</h3>
+          <ul>
+            <li>先到「Deps」下載分人模型。</li>
+            <li>打開「人員」分頁，輸入姓名後按「開始錄音」。</li>
+            <li>請該人持續說話約 30 秒，按「完成」保存樣本。</li>
+            <li>之後會議工作區執行分人時，App 可利用已註冊樣本自動標示講者名稱。</li>
+            <li>如需提升辨識穩定度，可對同一人使用「補錄」增加樣本。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="exports" class="section-shell split-section reverse">
+      <div>
+        <p class="eyebrow">Outputs</p>
+        <h2>輸出檔案與資料夾結構</h2>
+        <p>每場會議都會形成一個 session。你可以從 App 的「開資料夾」按鈕直接開啟，也可以到 <code>~/.mori/meetings/</code> 找到對應資料夾。</p>
+        <div class="output-list">
+          <div><strong>meeting.public.md</strong><span>對外可交付版本，只包含 public visibility 的會議內容。</span></div>
+          <div><strong>meeting.internal.md</strong><span>內部版本，包含 mic_internal、決議依據與完整補充。</span></div>
+          <div><strong>meeting.summary.public.md</strong><span>整理後的客戶版摘要。</span></div>
+          <div><strong>meeting.summary.internal.md</strong><span>整理後的內部版摘要。</span></div>
+          <div><strong>summary.audit.jsonl</strong><span>摘要管線稽核紀錄，可用來確認 backend 與遮蔽結果。</span></div>
+        </div>
+      </div>
+      <div class="folder-card" aria-label="資料夾結構示意">
+        <pre><code>~/.mori/meetings/
+└── 2026-06-06-project-sync/
+    ├── audio/
+    │   ├── meeting_system.wav
+    │   └── mic_internal.wav
+    ├── transcript.json
+    ├── meeting.public.md
+    ├── meeting.internal.md
+    ├── meeting.summary.public.md
+    ├── meeting.summary.internal.md
+    └── summary.audit.jsonl</code></pre>
+      </div>
+    </section>
+
+    <section class="section-shell privacy-section">
+      <div class="section-heading compact">
+        <p class="eyebrow">Data policy</p>
+        <h2>資料與隱私注意事項</h2>
+      </div>
+      <div class="privacy-grid">
+        <article>
+          <h3>轉錄預設本機處理</h3>
+          <p>App 使用本機 whisper.cpp CLI 或本機共享 whisper server。音訊不需要送到外部服務才能完成逐字稿。</p>
+        </article>
+        <article>
+          <h3>摘要有雲端與本機兩種路徑</h3>
+          <p>Groq 可提升摘要速度與品質，但代表摘要輸入會送出。敏感會議請勾選強制本機，只使用 Ollama。</p>
+        </article>
+        <article>
+          <h3>交付前務必檢查客戶版</h3>
+          <p>雖然 public/internal 有分流機制，仍建議在寄出前人工檢查 <code>meeting.public.md</code> 與客戶版摘要。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="faq" class="section-shell faq-section">
+      <div class="section-heading">
+        <p class="eyebrow">FAQ</p>
+        <h2>常見問題</h2>
+      </div>
+      <details open>
+        <summary>為什麼 Deps 顯示 whisper-cli 或模型缺失？</summary>
+        <p>請先執行安裝腳本，或確認 <code>~/.mori/bin/whisper-cli</code> 與 <code>~/.mori/models/ggml-small.bin</code> 是否存在。若剛安裝 ffmpeg，Windows 可能需要重開終端機或 App 才會更新 PATH。</p>
+      </details>
+      <details>
+        <summary>small 與 large-v3-turbo 模型怎麼選？</summary>
+        <p>small 速度快、資源需求低，適合一般會議與 CPU 環境。large-v3-turbo 準度較好，但 CPU 上較慢；若有 NVIDIA GPU，建議使用 GPU build 的 whisper-cli。</p>
+      </details>
+      <details>
+        <summary>線上會議抓不到系統音訊怎麼辦？</summary>
+        <p>Linux 請確認 PulseAudio/PipeWire monitor source 是否可用；Windows 使用 WASAPI loopback。若仍抓不到，先確認作業系統輸出裝置與會議軟體播放裝置一致。</p>
+      </details>
+      <details>
+        <summary>客戶版會不會包含內部麥克風內容？</summary>
+        <p>客戶版匯出只使用 public visibility 的內容；內部麥克風、旁白與決議依據預設留在內部版。交付前仍建議人工檢查。</p>
+      </details>
+      <details>
+        <summary>可以不用 Mori Desktop 或 AgentOS 嗎？</summary>
+        <p>可以。Mori Meeting Recorder 是 standalone-first 的桌面 App；Mori Desktop / AgentOS 整合是可選能力。</p>
+      </details>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="section-shell footer-inner">
+      <div>
+        <strong>Mori Meeting Recorder</strong>
+        <p>本機優先的會議錄音、轉錄與摘要工具。</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/yazelin/mori-meeting-recorder">GitHub</a>
+        <a href="https://github.com/yazelin/mori-meeting-recorder/blob/main/README.md">README</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
