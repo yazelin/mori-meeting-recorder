@@ -5,6 +5,13 @@ Standalone dual-track meeting recorder for the Mori universe.
 **Observer Mode MVP** — 雙軌錄音(`meeting_system` 系統輸出 + `mic_internal` 本機麥克風)
 → 停止後 whisper.cpp 雙軌平行轉錄 → visibility-based `meeting.public.md` / `meeting.internal.md` 匯出。
 
+## GitHub Pages 使用說明
+
+完整的產品介紹、安裝教學與操作手冊已整理在 GitHub Pages 靜態網站：
+
+- 本 repo 的 Pages 入口：[`docs/index.html`](docs/index.html)
+- 部署 workflow：`.github/workflows/pages.yml`，push 到 `main` 後自動發布 `docs/` 內容。
+
 ## Quick start
 
 ```bash
