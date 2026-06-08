@@ -31,11 +31,6 @@ body {
   overflow: hidden;
 }
 
-html.is-embedded,
-html.is-embedded body {
-  background: transparent;
-}
-
 button,
 input,
 textarea,
@@ -44,6 +39,11 @@ select {
 }
 
 button { cursor: pointer; }
+
+html.is-embedded,
+html.is-embedded body {
+  background: transparent !important;
+}
 
 .demo-shell {
   position: relative;
