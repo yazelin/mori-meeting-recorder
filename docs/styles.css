@@ -124,7 +124,9 @@ p { color: var(--text-muted); }
   width: 100%;
   height: 820px;
   border: 0;
-  background: transparent;
+  background:
+    radial-gradient(circle at 84% 12%, rgba(139, 112, 255, 0.16), transparent 22rem),
+    #090d12;
   filter:
     drop-shadow(0 24px 54px rgba(0, 0, 0, 0.48))
     drop-shadow(0 0 46px rgba(255, 138, 80, 0.15));
