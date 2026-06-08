@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mori Meeting Recorder Demo</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div class="demo-shell" data-state="idle">
+    <div class="window-bar" aria-hidden="true"><span></span><span></span><span></span></div>
+
+    <header class="capsule" data-state="idle">
+      <span class="capsule-dot idle"></span>
+      <span class="capsule-title">Recorder</span>
+      <span class="capsule-status">idle</span>
+      <span class="capsule-spacer"></span>
+      <span class="capsule-time">00:00:00</span>
+      <span class="signal-pills">
+        <span class="signal-pill" data-signal="sys"><span></span>SYS</span>
+        <span class="signal-pill" data-signal="mic"><span></span>MIC</span>
+      </span>
+      <button class="icon-btn record-toggle" type="button" title="開始錄音" aria-label="開始錄音">
+        <span class="play-icon"></span>
+      </button>
+      <button class="icon-btn cc-toggle" type="button" title="字幕視窗" aria-label="字幕視窗">CC</button>
+    </header>
+
+    <main class="app-panel">
+      <nav class="tabs" aria-label="Demo tabs">
+        <button class="tab active" type="button" data-tab="record">錄音</button>
+        <button class="tab" type="button" data-tab="live">字幕</button>
+        <button class="tab" type="button" data-tab="sessions">Sessions</button>
+        <button class="tab" type="button" data-tab="deps">Deps</button>
+      </nav>
+
+      <section class="tab-panel active" data-panel="record">
+        <div class="callout">
+          <span class="callout-icon">!</span>
+          <span>客戶版輸出只使用公開軌；內部麥克風預設保留在內部版。</span>
+        </div>
+
+        <div class="mode-switch" role="group" aria-label="錄音模式">
+          <button class="mmr-btn primary" type="button" data-mode="online">線上會議</button>
+          <button class="mmr-btn" type="button" data-mode="in_person">現場會議</button>
+        </div>
+
+        <div class="field-grid">
+          <label class="field system-device">
+            <span>系統音訊來源</span>
+            <select>
+              <option>Chrome / Meet loopback</option>
+              <option>Teams meeting audio</option>
+              <option>Default monitor</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>麥克風</span>
+            <select>
+              <option>Built-in microphone</option>
+              <option>USB conference mic</option>
+              <option>Room microphone</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="record-control-bar">
+          <span class="control-status">
+            <span class="control-dot idle"></span>
+            <span class="control-label">idle</span>
+            <span class="control-time">00:00:00</span>
+          </span>
+          <button class="control-action record-toggle" type="button" title="開始錄音" aria-label="開始錄音">
+            <span class="play-icon"></span>
+          </button>
+        </div>
+
+        <div class="tracks">
+          <article class="track-panel track-system">
+            <div class="track-head">
+              <span class="track-pill public">會議音訊</span>
+              <span class="track-source">meeting_system</span>
+            </div>
+            <div class="vu-meter" data-track="sys"></div>
+            <div class="track-progress"><span>已轉錄 <b data-done="sys">0</b></span><span>等待 <b data-pending="sys">0</b></span></div>
+          </article>
+
+          <article class="track-panel">
+            <div class="track-head">
+              <span class="track-pill internal">內部麥克風</span>
+              <span class="track-source">mic_internal</span>
+            </div>
+            <div class="vu-meter" data-track="mic"></div>
+            <div class="track-progress"><span>已轉錄 <b data-done="mic">0</b></span><span>等待 <b data-pending="mic">0</b></span></div>
+          </article>
+        </div>
+
+        <div class="meeting-info">
+          <label>
+            <span>本場主題</span>
+            <input type="text" value="Mori Recorder 導入會議" />
+          </label>
+          <label>
+            <span>參與者</span>
+            <textarea rows="3">客戶 PM
+內部技術顧問
+會議主持人</textarea>
+          </label>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="live">
+        <div class="live-grid">
+          <article class="live-column">
+            <div class="column-title"><span class="track-pill public">PUBLIC</span><strong>會議音訊</strong></div>
+            <div class="segment-list" data-segments="sys"></div>
+          </article>
+          <article class="live-column">
+            <div class="column-title"><span class="track-pill internal">INTERNAL</span><strong>內部麥克風</strong></div>
+            <div class="segment-list" data-segments="mic"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="sessions">
+        <div class="session-toolbar">
+          <input type="search" value="Mori Recorder" aria-label="搜尋 session" />
+          <button class="mmr-btn primary" type="button" data-open-workspace>打開工作區</button>
+        </div>
+        <div class="session-card active">
+          <div>
+            <h3>Mori Recorder 導入會議</h3>
+            <p>今天 14:30 · public/internal transcript ready</p>
+          </div>
+          <span class="session-state">organized</span>
+        </div>
+        <div class="workspace">
+          <div class="workspace-head">
+            <div>
+              <h3>Session 工作區</h3>
+              <p>逐字稿修正、講者分離、客戶版與內部版摘要。</p>
+            </div>
+            <button class="icon-btn close-workspace" type="button" title="關閉" aria-label="關閉">x</button>
+          </div>
+          <div class="summary-tabs">
+            <button class="active" type="button" data-summary="public">客戶版</button>
+            <button type="button" data-summary="internal">內部版</button>
+          </div>
+          <div class="summary-card" data-summary-card>
+            <h4>會議重點</h4>
+            <ul>
+              <li>確認採用本機 whisper 轉錄，敏感會議強制本機摘要。</li>
+              <li>交付文件使用客戶版，內部旁白不混入對外紀錄。</li>
+              <li>下次會議前完成 USB 會議麥克風測試。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="deps">
+        <div class="deps-list">
+          <div class="dep-row ok"><span></span><div><strong>whisper-cli</strong><p>~/.mori/bin/whisper-cli</p></div></div>
+          <div class="dep-row ok"><span></span><div><strong>ggml-large-v3-turbo</strong><p>~/.mori/models/ggml-large-v3-turbo.bin</p></div></div>
+          <div class="dep-row warn"><span></span><div><strong>speaker diarization model</strong><p>可在正式 App 內下載。</p></div></div>
+          <div class="dep-row ok"><span></span><div><strong>ffmpeg</strong><p>PATH ready</p></div></div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="caption-window caption-sys">
+      <span>會議音訊</span>
+      <p>客戶確認下週前需要一份可交付摘要。</p>
+    </aside>
+    <aside class="caption-window caption-mic">
+      <span>內部麥克風</span>
+      <p>備註：報價細節先不要放入客戶版。</p>
+    </aside>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
