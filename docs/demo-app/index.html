@@ -4,6 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mori Meeting Recorder Demo</title>
+  <script>
+    if (new URLSearchParams(window.location.search).has("embed")) {
+      document.documentElement.classList.add("is-embedded");
+    }
+  </script>
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
