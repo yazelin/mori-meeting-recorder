@@ -44,6 +44,12 @@ npm run tauri dev
 - **閒置自關**:supervisor 盯 `/inference` 活動,閒置(無轉錄)超過 10 分鐘
   (`whisper_discovery::DEFAULT_IDLE_SECS = 600`)就 SIGTERM 收掉 whisper-server、刪發現檔、退出。
 - **手動停止**:`~/.mori/bin/mori-whisper-serve --stop`。
+- **STT initial prompt**:`~/.mori/stt/initial-prompt.md` 會在共享 `whisper-server`
+  啟動時以 `--prompt` 帶入;也可手動
+  `~/.mori/bin/mori-whisper-serve --prompt-file <path>` 覆寫。會議錄音自己的 server/CLI
+  轉錄會先讀 `~/.mori/mori-meeting-recorder/stt-initial-prompt.md`,沒有才退回全域檔。
+  這是 Whisper decoder context,適合放專有名詞 / 繁中 / 台灣用語提示,不是摘要 LLM 的
+  system prompt。
 - **安裝 supervisor 到 `~/.mori/bin`**(讓別的 app 找得到):**權威鋪法**是
   `bash scripts/install-supervisor.sh`(或 `scripts/install-supervisor.ps1`)—— build + 裝進
   `~/.mori/bin`。dev 跑 recorder(`tauri dev`)啟動時也會 best-effort 自種一份。**注意**:正式

@@ -17,8 +17,12 @@ pub const SUPPORTED_CONTRACT_VERSION: u32 = 1;
 /// 單一事實來源 —— supervisor、`ensure_server`、`--ensure` 全引這個,別各寫各的 600。
 pub const DEFAULT_IDLE_SECS: u64 = 600; // 10 分鐘
 
-fn default_contract_version() -> u32 { 1 }
-fn default_inference_path() -> String { "/inference".to_string() }
+fn default_contract_version() -> u32 {
+    1
+}
+fn default_inference_path() -> String {
+    "/inference".to_string()
+}
 
 /// 發現檔 schema(v1)。前向相容:未知欄位容忍 + 缺欄回預設(§6)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +59,33 @@ pub fn lock_path() -> PathBuf {
     dirs::home_dir()
         .map(|h| h.join(".mori").join("whisper-server.lock"))
         .unwrap_or_else(|| PathBuf::from("whisper-server.lock"))
+}
+
+fn read_nonempty(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+/// Shared STT initial prompt. Used when starting the global whisper-server.
+pub fn global_stt_initial_prompt_path() -> PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join(".mori").join("stt").join("initial-prompt.md"))
+        .unwrap_or_else(|| PathBuf::from("initial-prompt.md"))
+}
+
+/// App-specific STT prompt, falling back to the shared global prompt.
+pub fn stt_initial_prompt(app_dir: Option<&str>) -> Option<String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    app_dir
+        .and_then(|name| {
+            read_nonempty(&home.join(".mori").join(name).join("stt-initial-prompt.md"))
+        })
+        .or_else(|| read_nonempty(&global_stt_initial_prompt_path()))
 }
 
 /// 解析 descriptor 字串 + 版本天花板(§8 HIGH)。壞 json / 太新版本 → None。
@@ -302,12 +333,20 @@ pub fn hide_console(cmd: &mut std::process::Command) {
 /// **Linux**:`setsid`(自成 session,呼叫者關掉也不連帶收掉它)+ close 繼承 fd(防 single-instance
 /// socket 洩漏)。**Windows**:`DETACHED_PROCESS`。**其他平台(含 macOS)目前不 detach**,照常 spawn
 /// (recorder 只支援 Linux + Windows,macOS 無音訊 backend)。stdio 全 null、fire-and-forget(不 wait)。
-pub fn spawn_supervisor_detached(bin: &Path, model: &str, idle_secs: u64) -> Result<(), String> {
+pub fn spawn_supervisor_detached(
+    bin: &Path,
+    model: &str,
+    idle_secs: u64,
+    prompt_file: Option<&str>,
+) -> Result<(), String> {
     let mut cmd = std::process::Command::new(bin);
     cmd.args(["--model", model, "--idle-secs", &idle_secs.to_string()])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    if let Some(path) = prompt_file.map(str::trim).filter(|p| !p.is_empty()) {
+        cmd.args(["--prompt-file", path]);
+    }
     #[cfg(target_os = "linux")]
     unsafe {
         use std::os::unix::process::CommandExt;
@@ -353,7 +392,7 @@ pub fn ensure_server(model: &str) {
             return;
         }
     };
-    match spawn_supervisor_detached(&bin, model, DEFAULT_IDLE_SECS) {
+    match spawn_supervisor_detached(&bin, model, DEFAULT_IDLE_SECS, None) {
         Ok(()) => eprintln!(
             "[whisper] ensured shared whisper-server (model={model}, supervisor={})",
             bin.display()
@@ -407,7 +446,11 @@ mod tests {
         let s = p.to_string_lossy();
         assert!(s.contains(".mori"), "supervisor 應住 ~/.mori/bin: {s}");
         assert!(s.contains("bin"), "supervisor 應住 ~/.mori/bin: {s}");
-        assert!(p.ends_with(supervisor_bin_name()), "檔名應為 {}", supervisor_bin_name());
+        assert!(
+            p.ends_with(supervisor_bin_name()),
+            "檔名應為 {}",
+            supervisor_bin_name()
+        );
     }
 
     #[test]

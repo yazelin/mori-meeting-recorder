@@ -274,19 +274,34 @@ fn run_whisper_server(
     body.extend_from_slice(
         format!("--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\njson\r\n").as_bytes(),
     );
+    if let Some(prompt) =
+        crate::whisper_discovery::stt_initial_prompt(Some("mori-meeting-recorder"))
+    {
+        body.extend_from_slice(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{prompt}\r\n").as_bytes(),
+        );
+    }
     body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
 
     // 60s(原 120s):clip 上限 20s 音訊,即使慢機 CPU 跑 large-v3-turbo 也夠;太長會讓中途掛掉的
     // server 把第一段卡到天荒地老才 fallback。配合 sticky fallback,最多認賠這一段就改 cli。
     let resp = ureq::post(&desc.inference_url())
-        .set("Content-Type", &format!("multipart/form-data; boundary={boundary}"))
+        .set(
+            "Content-Type",
+            &format!("multipart/form-data; boundary={boundary}"),
+        )
         .timeout(std::time::Duration::from_secs(60))
         .send_bytes(&body)
         .map_err(|e| format!("POST {}: {e}", desc.inference_url()))?;
     if resp.status() != 200 {
         // body 常帶診斷(模型 OOM / 載入失敗等),截 200 字一起回,讓 fallback log 看得到原因。
         let status = resp.status();
-        let snippet: String = resp.into_string().unwrap_or_default().chars().take(200).collect();
+        let snippet: String = resp
+            .into_string()
+            .unwrap_or_default()
+            .chars()
+            .take(200)
+            .collect();
         return Err(format!("status {status}: {snippet}"));
     }
     let json = resp.into_string().map_err(|e| format!("read resp: {e}"))?;
@@ -318,6 +333,11 @@ fn run_whisper_cli(wav: &Path, session_id: &str, kind: SourceKind, language: &st
         "--output-json-full",
         "--no-prints",
     ]);
+    if let Some(prompt) =
+        crate::whisper_discovery::stt_initial_prompt(Some("mori-meeting-recorder"))
+    {
+        cmd.arg("--prompt").arg(prompt);
+    }
     crate::whisper_discovery::hide_console(&mut cmd); // Windows: 不要閃 console 黑窗
     let output = match cmd.output() {
         Ok(o) => o,
@@ -327,7 +347,11 @@ fn run_whisper_cli(wav: &Path, session_id: &str, kind: SourceKind, language: &st
         }
     };
     if !output.status.success() {
-        eprintln!("whisper-cli exited {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
+        eprintln!(
+            "whisper-cli exited {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
         return vec![];
     }
     // whisper-cli `--output-json-full` 把 JSON 寫到 `<wav>.json`,不是 stdout。
@@ -506,7 +530,10 @@ mod tests {
     #[test]
     fn normalize_text_collapses_internal_newlines_to_single_line() {
         // whisper 內部斷句的 \n 不該變成多行字幕
-        assert_eq!(normalize_text("揹著海下山\n遠觀天山\n啊"), "揹著海下山 遠觀天山 啊");
+        assert_eq!(
+            normalize_text("揹著海下山\n遠觀天山\n啊"),
+            "揹著海下山 遠觀天山 啊"
+        );
         assert_eq!(normalize_text("  hello \n world  "), "hello world");
         assert_eq!(normalize_text("一句"), "一句");
         assert!(!normalize_text("a\nb\nc").contains('\n'));
@@ -564,7 +591,11 @@ mod tests {
         // 第二次寫(覆寫):仍然只有 2 個,不是 4(驗 overwrite 語意)
         write_segments_jsonl(&path, &[seg.clone(), seg.clone()]).unwrap();
         let segs2 = read_segments_jsonl(&path);
-        assert_eq!(segs2.len(), 2, "overwrite should still have 2 segments, not 4");
+        assert_eq!(
+            segs2.len(),
+            2,
+            "overwrite should still have 2 segments, not 4"
+        );
     }
 
     #[test]
@@ -638,16 +669,21 @@ mod tests {
         // zhconv 純 Rust、bundle 在內,簡體一定轉成台灣正體。
         assert_eq!(to_traditional("测试文字"), "測試文字");
         assert_eq!(to_traditional("软件"), "軟體"); // 台灣詞彙(非僅字形)
-        // 已是繁體 → 不變
+                                                    // 已是繁體 → 不變
         assert_eq!(to_traditional("會議記錄"), "會議記錄");
     }
 
     #[test]
     fn parse_server_json_makes_one_segment_spanning_the_clip() {
         // baseline plain {text}:整個 clip 一段,start=0、end=clip 長度。whisper 常前綴空白 → trim。
-        let seg = parse_server_json(r#"{"text":" 我們下週三前要交版本。"}"#, 4200, "m1", SourceKind::MeetingSystem)
-            .unwrap()
-            .unwrap();
+        let seg = parse_server_json(
+            r#"{"text":" 我們下週三前要交版本。"}"#,
+            4200,
+            "m1",
+            SourceKind::MeetingSystem,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(seg.id, "seg_001");
         assert_eq!(seg.session_id, "m1");
         assert_eq!(seg.track, "system");
@@ -671,8 +707,16 @@ mod tests {
     #[test]
     fn parse_server_json_empty_text_is_ok_none_not_error() {
         // 空 / 純空白 = 真靜音 → Ok(None):不產段、**不**讓上層 fallback cli(否則每段靜音白跑 cli)。
-        assert!(parse_server_json(r#"{"text":""}"#, 1000, "x", SourceKind::MeetingSystem).unwrap().is_none());
-        assert!(parse_server_json(r#"{"text":"   "}"#, 1000, "x", SourceKind::MeetingSystem).unwrap().is_none());
+        assert!(
+            parse_server_json(r#"{"text":""}"#, 1000, "x", SourceKind::MeetingSystem)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            parse_server_json(r#"{"text":"   "}"#, 1000, "x", SourceKind::MeetingSystem)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -764,6 +808,9 @@ mod tests {
         // 舊 jsonl(沒有 supplement 欄位)反序列化 → supplement 應為 false(back-compat)。
         let line = r#"{"id":"s1","session_id":"x","track":"system","source_kind":"meeting_system","visibility":"public","start_ms":0,"end_ms":1000,"text":"hi","is_final":true}"#;
         let s: Segment = serde_json::from_str(line).unwrap();
-        assert!(!s.supplement, "supplement should default to false for old jsonl without the field");
+        assert!(
+            !s.supplement,
+            "supplement should default to false for old jsonl without the field"
+        );
     }
 }
