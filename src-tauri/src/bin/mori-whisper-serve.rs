@@ -41,6 +41,7 @@ struct Args {
     host: String,
     port: Option<u16>,
     threads: u32,
+    prompt_file: Option<String>,
     stop: bool,
     ensure: bool,
     help: bool,
@@ -53,6 +54,7 @@ fn parse_args() -> Args {
         host: "127.0.0.1".to_string(),
         port: None,
         threads: 4,
+        prompt_file: None,
         stop: false,
         ensure: false,
         help: false,
@@ -61,10 +63,16 @@ fn parse_args() -> Args {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--model" => a.model = it.next().unwrap_or(a.model),
-            "--idle-secs" => a.idle_secs = it.next().and_then(|s| s.parse().ok()).unwrap_or(a.idle_secs),
+            "--idle-secs" => {
+                a.idle_secs = it
+                    .next()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(a.idle_secs)
+            }
             "--host" => a.host = it.next().unwrap_or(a.host),
             "--port" => a.port = it.next().and_then(|s| s.parse().ok()),
             "--threads" => a.threads = it.next().and_then(|s| s.parse().ok()).unwrap_or(a.threads),
+            "--prompt-file" => a.prompt_file = it.next(),
             "--stop" => a.stop = true,
             "--ensure" => a.ensure = true,
             "-h" | "--help" => a.help = true,
@@ -72,6 +80,30 @@ fn parse_args() -> Args {
         }
     }
     a
+}
+
+fn expand_tilde(path: &str) -> std::path::PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        return dirs::home_dir().unwrap_or_default().join(rest);
+    }
+    std::path::PathBuf::from(path)
+}
+
+fn read_prompt_file(path: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+fn initial_prompt(args: &Args) -> Option<String> {
+    args.prompt_file
+        .as_deref()
+        .and_then(|p| read_prompt_file(&expand_tilde(p)))
+        .or_else(|| whisper_discovery::stt_initial_prompt(None))
 }
 
 fn home_join(parts: &[&str]) -> std::path::PathBuf {
@@ -122,7 +154,9 @@ fn acquire_lock() -> Result<std::fs::File, String> {
             .truncate(false) // lock 內容只是診斷用 pid,不截斷(行為同原本無 truncate 的預設)
             .share_mode(0) // 獨占:別的 starter 同樣 share_mode(0) 開會失敗 = 鎖
             .open(&path)
-            .map_err(|_| "another mori-whisper-serve holds the lock (windows exclusive)".to_string())?
+            .map_err(|_| {
+                "another mori-whisper-serve holds the lock (windows exclusive)".to_string()
+            })?
     };
     #[cfg(not(windows))]
     let file = std::fs::OpenOptions::new()
@@ -180,6 +214,7 @@ fn spawn_server(args: &Args, port: u16) -> Result<Child, String> {
         return Err(format!("model not found: {}", model.display()));
     }
     let mut cmd = Command::new(&bin);
+    let initial_prompt = initial_prompt(args);
     cmd.args([
         "-m",
         &model.to_string_lossy(),
@@ -194,13 +229,26 @@ fn spawn_server(args: &Args, port: u16) -> Result<Child, String> {
     ])
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
+    if let Some(prompt) = initial_prompt.as_deref() {
+        cmd.arg("--prompt").arg(prompt);
+        eprintln!(
+            "[whisper-serve] loaded STT initial prompt ({} chars)",
+            prompt.chars().count()
+        );
+    }
 
     #[cfg(target_os = "linux")]
     unsafe {
         use std::os::unix::process::CommandExt;
         cmd.pre_exec(|| {
             // child 在 supervisor 先死時收到 SIGTERM,避免變孤兒繼續佔 VRAM。
-            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM as libc::c_ulong, 0, 0, 0);
+            libc::prctl(
+                libc::PR_SET_PDEATHSIG,
+                libc::SIGTERM as libc::c_ulong,
+                0,
+                0,
+                0,
+            );
             // 關掉繼承來的 fd(尤其 supervisor 持的 flock)→ whisper-server 不該守住單例鎖
             // (memory: mori-spawn-close-fds-linux)。stdout/stderr 已 dup2 到 1/2,關 ≥3 不影響活動監看。
             whisper_discovery::close_inherited_fds();
@@ -209,7 +257,8 @@ fn spawn_server(args: &Args, port: u16) -> Result<Child, String> {
     }
 
     whisper_discovery::hide_console(&mut cmd); // Windows: 不要閃 console 黑窗
-    cmd.spawn().map_err(|e| format!("spawn whisper-server: {e}"))
+    cmd.spawn()
+        .map_err(|e| format!("spawn whisper-server: {e}"))
 }
 
 /// 一行 whisper-server log 是否代表「有一筆 /inference 進來」(活動訊號)。
@@ -240,7 +289,10 @@ fn watch_stream<R: std::io::Read + Send + 'static>(
 fn do_stop() {
     if let Some(desc) = whisper_discovery::read_descriptor() {
         kill_pid(desc.pid);
-        eprintln!("[whisper-serve] sent stop to whisper-server pid {}", desc.pid);
+        eprintln!(
+            "[whisper-serve] sent stop to whisper-server pid {}",
+            desc.pid
+        );
     }
     if let Ok(s) = std::fs::read_to_string(whisper_discovery::lock_path()) {
         if let Ok(pid) = s.trim().parse::<u32>() {
@@ -267,15 +319,23 @@ fn do_ensure(args: &Args) {
     // 對齊 ensure_server:best-effort 把自己種進 ~/.mori/bin,再從**共用點**起(讓往後任何 app 都找得到)。
     // 若 current_exe 就是共用點則 install no-op;找不到共用點就退回 current_exe。
     whisper_discovery::install_shared_supervisor();
-    let bin = match whisper_discovery::locate_supervisor().or_else(|| std::env::current_exe().ok()) {
+    let bin = match whisper_discovery::locate_supervisor().or_else(|| std::env::current_exe().ok())
+    {
         Some(p) => p,
         None => {
-            eprintln!("[whisper-serve] --ensure: 找不到 supervisor binary(locate + current_exe 都失敗)");
+            eprintln!(
+                "[whisper-serve] --ensure: 找不到 supervisor binary(locate + current_exe 都失敗)"
+            );
             std::process::exit(1);
         }
     };
     // 背景化 spawn 的是「裸 supervise 模式」(無 --ensure)→ 不會無限自我 re-ensure。
-    match whisper_discovery::spawn_supervisor_detached(&bin, &args.model, args.idle_secs) {
+    match whisper_discovery::spawn_supervisor_detached(
+        &bin,
+        &args.model,
+        args.idle_secs,
+        args.prompt_file.as_deref(),
+    ) {
         Ok(()) => eprintln!(
             "[whisper-serve] ensured: detached supervisor spawned (model={}, idle-secs={}, bin={})",
             args.model,
@@ -296,7 +356,9 @@ fn kill_pid(pid: u32) {
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).output();
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .output();
     }
 }
 
@@ -314,6 +376,7 @@ const HELP: &str = "mori-whisper-serve — 共享 whisper-server supervisor(idle
   --host <HOST>                    預設 127.0.0.1
   --port <PORT>                    指定埠(預設自動選空閒埠)
   --threads <N>                    whisper-server 執行緒(預設 4)
+  --prompt-file <PATH>             STT initial prompt 檔;省略則讀 ~/.mori/stt/initial-prompt.md
   --ensure                         確保共享 server 在跑(沒有就背景拉起),冪等 + 馬上返回。
                                    任何 app / 腳本喚醒本地 whisper 用這個。
   --stop                           停掉目前在跑的共享 server
@@ -378,7 +441,11 @@ fn main() {
     }
 
     let base_url = format!("http://{}:{}", args.host, port);
-    if !wait_ready(&mut child, &base_url, Duration::from_secs(READY_TIMEOUT_SECS)) {
+    if !wait_ready(
+        &mut child,
+        &base_url,
+        Duration::from_secs(READY_TIMEOUT_SECS),
+    ) {
         eprintln!("[whisper-serve] server not ready within {READY_TIMEOUT_SECS}s; aborting");
         cleanup(&mut child);
         std::process::exit(1);
@@ -420,7 +487,10 @@ fn main() {
         }
         let idle = now_unix().saturating_sub(last_activity.load(Ordering::Relaxed));
         if idle >= args.idle_secs {
-            eprintln!("[whisper-serve] idle {idle}s >= {}s — reaping", args.idle_secs);
+            eprintln!(
+                "[whisper-serve] idle {idle}s >= {}s — reaping",
+                args.idle_secs
+            );
             break;
         }
     }
@@ -440,7 +510,9 @@ mod tests {
             "operator(): processing 'clip.wav' (16000 samples, 1.0 sec), 4 threads, 1 processors, lang = zh, task = transcribe"
         ));
         // 載入 / backend / 系統資訊那些行 → 不算活動(否則啟動瞬間就被當「有人用」永遠不閒置)
-        assert!(!is_activity_line("whisper_init_state: kv self size = 18.87 MB"));
+        assert!(!is_activity_line(
+            "whisper_init_state: kv self size = 18.87 MB"
+        ));
         assert!(!is_activity_line(
             "system_info: n_threads = 4 / 16 | WHISPER : COREML = 0 | CUDA : ARCHS = 890"
         ));
