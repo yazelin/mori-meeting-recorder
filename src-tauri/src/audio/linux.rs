@@ -184,8 +184,10 @@ pub fn open_capture(
             match simple.read(&mut buf) {
                 Ok(()) => {
                     let samples: Vec<i16> = buf
-                        .chunks_exact(2)
-                        .map(|c| i16::from_le_bytes([c[0], c[1]]))
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|c| i16::from_le_bytes(*c))
                         .collect();
                     // Convert i16 samples to normalized f32 for levels::compute_levels (expects ±1.0 range)
                     let normalized: Vec<f32> = samples.iter().map(|&s| s as f32 / 32_768.0).collect();
